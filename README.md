@@ -91,13 +91,22 @@ Pitch shifter **granular** (`PitchShift`): transpone sin cambiar la duración.
   (HPF encendido; distorsión, compresor y pitch apagados). *No* toca el
   fader ni mute/solo: en vivo, un salto de volumen es peligroso.
 
+### Entrada manual de valores
+
+**Doble click** sobre cualquier perilla o fader (incluido el master) abre
+una ventanita para teclear el valor exacto. Se escribe en las unidades que
+muestra la etiqueta: Hz (acepta `2k` = 2000), ms para los tiempos del
+compresor, dB, etc. Enter aplica, Esc cancela.
+
 ## Strip del MASTER
 
 - **Osciloscopio**: forma de onda de la salida, **en vivo**, post-limitador
   (verde = izquierda, azul = derecha). Lo que ves es lo que sale por las
   bocinas.
 - Fader general + medidores L/R + **MUTE** general.
-- **● REC / ■ STOP**: graba la mezcla estéreo tal como la escuchas.
+- **● REC / ■ STOP** con checkbox **stems**: graba la mezcla estéreo tal
+  como la escuchas, o — con el checkbox encendido — un WAV separado por
+  canal (ver abajo).
 - **GUARDAR / CARGAR PRESET** (ver abajo).
 
 ## Grabaciones
@@ -107,6 +116,16 @@ archivo `.scd` (la carpeta se crea sola y está en el `.gitignore`, así que
 las sesiones no se suben al repositorio). El nombre incluye fecha y hora:
 `sesion_AAMMDD_HHMMSS.wav`. Al detener la grabación, el archivo se carga
 automáticamente en el reproductor.
+
+### Grabación por stems
+
+Con el checkbox **stems** (junto a REC) encendido, en lugar de la mezcla
+estéreo se graban **3 WAVs separados, uno por canal**
+(`sesion_..._boca.wav`, `sesion_..._garganta.wav`, `sesion_..._voz.wav`).
+La señal de cada stem es **post-fader y pre-pan** (mono, con todos los
+efectos del canal y el nivel del fader aplicados): lo que ese canal aportó
+a la mezcla, listo para re-mezclar en un DAW. El modo se elige antes de
+arrancar la grabación y no puede cambiarse a media sesión.
 
 > Nota: SuperCollider solo conoce la ubicación del `.scd` si el documento
 > está guardado en disco. Si evalúas el código desde un documento sin
@@ -121,10 +140,27 @@ limitador del master, no por los canales.
 
 ## Presets
 
+### Presets rápidos (slots)
+
+La fila **PRESETS RÁPIDOS** tiene 8 slots pensados para el vivo: **un
+click carga el slot completo al instante** (todas las perillas,
+procesadores y faders), sin diálogos de archivos. También se cargan con
+los botones de la **fila baja del X-Touch Mini** (notas 16–23).
+
+Para guardar: presiona **[GUARDAR EN…]** (queda armado en rojo) y luego el
+slot destino — el estado actual completo se guarda ahí. Los botones
+muestran su estado: apagado = vacío, claro = ocupado, acento = el último
+cargado/guardado. En el controlador, los LEDs de la fila baja se encienden
+en los slots ocupados.
+
+### Presets de archivo
+
 **GUARDAR PRESET** serializa el estado completo de la mezcladora (todas las
-perillas, qué procesadores están encendidos y los faders) a un archivo
-binario; **CARGAR PRESET** lo restaura. Esencial para performance: llegas,
-cargas tu preset, y todo queda como en el ensayo.
+perillas, qué procesadores están encendidos y los faders) **junto con los
+8 presets rápidos de la sesión** a un archivo binario; **CARGAR PRESET**
+restaura todo, slots incluidos. Esencial para performance: llegas, cargas
+tu preset, y tanto la mezcladora como tus presets rápidos quedan como en
+el ensayo.
 
 ## MIDI: mapas por bancos
 
@@ -145,6 +181,7 @@ baja → notas 16–23.
 
 | Mapa | Encoders 1–8 | CC 9 (fader) |
 |---|---|---|
+| **CONCIERTO** *(activo al arrancar)* | drive de los 3 canales, campana media (MID g) de los 3 canales, pitch y mezcla de pitch de la voz | master |
 | **MEZCLA** | faders de los 3 canales, master, trims de los 3 canales, pan de la voz | master |
 | **BOCA** | trim, HPF, LO g, MID g, HI g, drive, mezcla dist, fader del canal | master |
 | **GARGANTA** | igual que BOCA, para el canal 2 | master |
@@ -157,6 +194,22 @@ Notas fijas (independientes del mapa activo):
 | 8 | ciclar al siguiente mapa |
 | 9, 10, 11 | toggle de mute de los canales 1, 2, 3 |
 | 15 | toggle de grabación (REC/STOP) |
+| 16–23 | cargar el preset rápido 1–8 (fila baja del X-Touch Mini) |
+
+### LEDs del controlador
+
+SC manda MIDI **de regreso** al controlador (se busca por nombre el
+dispositivo configurado en `midiNombreControlador`, por defecto
+`"X-TOUCH MINI"`):
+
+- Los **anillos de los encoders** se actualizan con los valores de los
+  destinos del mapa activo — al cambiar de banco, al cargar un preset o un
+  slot, los anillos saltan a las posiciones reales de ese mapa.
+- Los **botones de mute** se encienden cuando el canal está muteado, el de
+  **REC** mientras se graba, y los de la **fila baja** en los slots
+  ocupados. Al cerrar la mezcladora se apagan todos.
+
+Si el controlador no está conectado, todo funciona igual pero sin LEDs.
 
 ### Personalizar los mapas
 
@@ -184,7 +237,10 @@ Todo lo configurable vive al **inicio del archivo** (sección 0, `~cfg`):
 - `entradasHW` / `salidasHW` — canales que expone el servidor de audio.
 - `carpetaRec`, `formatoRec`, `bitsRec` — dónde y cómo se graba.
 - `ventanaX/Y/Ancho/Alto` — geometría de la ventana.
-- `midiHabilitado`, `notaCambiarMapa`, `notasMute`, `notaRec` — MIDI.
+- `midiHabilitado`, `notaCambiarMapa`, `notasMute`, `notaRec`,
+  `notasSlots` — notas MIDI (la cantidad de slots rápidos la define el
+  tamaño de `notasSlots`).
+- `midiNombreControlador`, `midiCanalLeds` — retroalimentación de LEDs.
 - `~mapasMIDI` — los bancos de mapeo descritos arriba.
 
 ## Extender la cadena de efectos
