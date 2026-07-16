@@ -1,28 +1,28 @@
 /*
 ================================================================================
-  VOZ ENCARNADA — Mezcladora corporal · v3
+  VOZ ENCARNADA — Mezcladora corporal · v4
   Patch de SuperCollider para Behringer UMC404HD · Arch Linux / PipeWire
 ================================================================================
 
   NOVEDADES DE ESTA VERSIÓN
   -------------------------
-  · SECCIÓN 0 DE CONFIGURACIÓN: todo lo configurable (título, canales,
-    carpeta de grabación, tamaño de ventana, mapas MIDI…) vive al inicio
-    del archivo para que lo edites sin bucear en el código.
-  · CURVA DE EQ: cada canal dibuja la curva de respuesta en frecuencia
-    resultante de sus perillas (HPF + 3 bandas). Se redibuja al girar.
-  · PITCH SHIFTER integrado como insert por canal (el granular del viejo
-    ejemplo), con perillas PITCH / DISP / MEZCLA y botón ON, incluido en
-    RESET y en los presets.
-  · OSCILOSCOPIO: la forma de onda de la salida master, en vivo, en el
-    strip del MASTER.
-  · MIDI: sistema de mapeos por bancos pensado para el Behringer
-    X-Touch Mini (u otro controlador). Varios mapas definidos en la
-    configuración; se cambia de mapa con un botón de la GUI o con una
-    nota MIDI. También hay notas para mute de cada canal y para REC.
-  · Las grabaciones ahora se guardan en ./rec/ (junto a este archivo),
-    no en el home.
-  · La ventana se llama "Voz encarnada" (configurable).
+  · PRESETS RÁPIDOS: 8 slots en una fila propia, pensados para el vivo.
+    Un click (o un botón del controlador, fila baja del X-Touch Mini)
+    cambia todo el estado de la mezcladora al instante. Los slots de la
+    sesión se guardan DENTRO del archivo de preset.
+  · LEDs del X-Touch Mini: SC manda MIDI de regreso al controlador — los
+    anillos de los encoders siguen los valores del mapa activo (también
+    al cambiar de mapa o cargar un preset), y los botones de mute, REC y
+    slots se iluminan según su estado.
+  · Mapa CONCIERTO: controles de los tres micrófonos a la vez (drive,
+    campana media, pitch de la voz) — es el mapa activo al arrancar.
+  · Grabación por STEMS: checkbox junto a REC para elegir entre grabar la
+    mezcla estéreo o 3 WAVs separados (uno por canal, post-fader).
+  · Doble click en cualquier perilla o fader: escribe el valor a mano.
+
+  VERSIONES ANTERIORES: curva de EQ por canal · pitch shifter granular ·
+  osciloscopio del master · mapas MIDI por bancos · grabación en ./rec/ ·
+  sección 0 de configuración · distorsión/compresor por canal · presets.
 
   MAPA DE CANALES (configurable en la sección 0):
     Entrada 1 → BOCA      (hidrófono JrF)        [switch: Instrument/Hi-Z]
@@ -78,7 +78,7 @@
 
 	// Ventana: posición y tamaño inicial.
 	ventanaX: 40, ventanaY: 40,
-	ventanaAncho: 1020, ventanaAlto: 860,
+	ventanaAncho: 1020, ventanaAlto: 900,
 
 	// ── MIDI ────────────────────────────────────────────────────────────
 	// Pensado para el Behringer X-Touch Mini en modo estándar (capa A):
@@ -91,7 +91,15 @@
 	midiHabilitado: true,
 	notaCambiarMapa: 8,        // botón que cicla entre los mapas de abajo
 	notasMute: [9, 10, 11],    // toggle de mute de los canales 1, 2, 3
-	notaRec: 15                // toggle de grabación (REC/STOP)
+	notaRec: 15,               // toggle de grabación (REC/STOP)
+	notasSlots: [16, 17, 18, 19, 20, 21, 22, 23],   // fila baja → presets rápidos
+
+	// LEDs del controlador: SC manda MIDI de regreso al dispositivo cuyo
+	// nombre contenga este texto (anillos de encoders + botones). El canal
+	// 10 (= canal 11 contando desde 1) es el del X-Touch Mini en modo
+	// estándar. Si el dispositivo no aparece, los LEDs se omiten sin error.
+	midiNombreControlador: "X-TOUCH MINI",
+	midiCanalLeds: 10
 );
 
 // ── Mapas MIDI ──────────────────────────────────────────────────────────────
@@ -105,6 +113,23 @@
 //   \hiGain \drive \mezcla \umbral \ratio \atk \rel \makeup
 //   \pitchRatio \pitchDisp \pitchMezcla
 ~mapasMIDI = [
+	(
+		// El mapa de arranque: lo más útil en un concierto, de los tres
+		// micrófonos a la vez — saturación y campana media de cada canal,
+		// más el pitch de la voz en los últimos dos encoders.
+		nombre: "CONCIERTO",
+		ccs: Dictionary.newFrom([
+			1, [\perilla, 0, \drive],       // encoders 1-3 → drive de cada canal
+			2, [\perilla, 1, \drive],
+			3, [\perilla, 2, \drive],
+			4, [\perilla, 0, \midGain],     // encoders 4-6 → campana media
+			5, [\perilla, 1, \midGain],
+			6, [\perilla, 2, \midGain],
+			7, [\perilla, 2, \pitchRatio],  // encoders 7-8 → pitch de la voz
+			8, [\perilla, 2, \pitchMezcla],
+			9, [\master]                    // fader físico → master
+		])
+	),
 	(
 		nombre: "MEZCLA",
 		ccs: Dictionary.newFrom([
@@ -190,8 +215,8 @@ s.waitForBoot({
 	    specTrim, specPan, specHPF, specLoF, specMidF, specMidQ, specHiF,
 	    specGain, specFader, specDrive, specMezcla, specThr, specRatio,
 	    specAtk, specRel, specMakeup, specVolPlayer, specPitch, specDisp,
-	    hazKnob, hazSeccion, hazStrip, stripMaster, filaPlayer, filaTitulo,
-	    btnMapa, ventana;
+	    hazKnob, hazSeccion, hazStrip, stripMaster, filaPlayer, filaSlots,
+	    filaTitulo, btnMapa, ventana;
 
 	numCanales = ~cfg[\canales].size;
 	nombres    = ~cfg[\canales].collect { |c| c[\nombre] };
@@ -202,6 +227,10 @@ s.waitForBoot({
 	// Un bus de audio mono privado por canal: la señal viaja por él entre
 	// las etapas de su cadena (cada etapa lo lee y lo reemplaza).
 	~busCanal = numCanales.collect { Bus.audio(s, 1) };
+
+	// Bus mono paralelo por canal: la salida de canal escribe ahí una copia
+	// post-fader de su señal. De estos "taps" lee la grabación por stems.
+	~busGrab = numCanales.collect { Bus.audio(s, 1) };
 
 	// El orden de creación de los grupos define el orden de ejecución del
 	// audio. Un synth solo puede leer lo que otro escribió si corre DESPUÉS.
@@ -214,6 +243,10 @@ s.waitForBoot({
 
 	// Subgrupo de FX por canal: la cadena de inserts de ese canal vive aquí.
 	~gFxCanal = numCanales.collect { Group.tail(~gFx) };
+
+	// Grupo para la grabación por stems: se inserta justo después de las
+	// salidas de canal, donde los taps ya tienen la señal post-fader.
+	~gGrab = Group.after(~gSalidas);
 
 	// Buffer especial para el osciloscopio de salida (memoria compartida
 	// entre servidor y GUI: por eso la forma de onda puede verse en vivo).
@@ -328,12 +361,17 @@ s.waitForBoot({
 	}).add;
 
 	// ── 3f. SALIDA DE CANAL: fader, mute/solo, pan → suma al master ────────
-	SynthDef(\ent_salidaCanal, { |bus = 0, out = 0, amp = 1, mute = 1, pan = 0, idMedidor = 0|
+	SynthDef(\ent_salidaCanal, { |bus = 0, out = 0, amp = 1, mute = 1, pan = 0,
+	                              idMedidor = 0, busGrab = 0|
 		var sig;
 		sig = In.ar(bus, 1);
 		sig = sig * amp.lag(0.05) * mute.lag(0.02);
 		// Medición post-fader → el medidor muestra lo que entra a la mezcla.
 		SendPeakRMS.ar(sig, 20, 3, '/medidorCanal', idMedidor);
+		// Copia mono post-fader al tap de grabación (mono, antes del pan):
+		// de aquí lee la grabación por stems. Los buses de audio se limpian
+		// solos en cada bloque, así que no cuesta nada cuando no se graba.
+		Out.ar(busGrab, sig);
 		Out.ar(out, Pan2.ar(sig, pan.lag(0.05)));
 	}).add;
 
@@ -350,14 +388,21 @@ s.waitForBoot({
 		ReplaceOut.ar(out, sig);
 	}).add;
 
-	// ── 3h. OSCILOSCOPIO: manda la salida final al buffer del scope ────────
+	// ── 3h. GRABADOR DE STEM: escribe un tap de canal a disco ──────────────
+	// DiskOut es el espejo de DiskIn: va vaciando a disco, por bloques, lo
+	// que le llega, a través de un buffer que se abrió con leaveOpen: true.
+	SynthDef(\grab_stem, { |busGrab = 0, buf = 0|
+		DiskOut.ar(buf, In.ar(busGrab, 1));
+	}).add;
+
+	// ── 3i. OSCILOSCOPIO: manda la salida final al buffer del scope ────────
 	// Corre DESPUÉS del master (tail del mismo grupo) → lo que ves es
 	// exactamente lo que sale por las bocinas, post-limitador.
 	SynthDef(\ent_scope, { |scbuf = 0|
 		ScopeOut2.ar(In.ar(0, 2), scbuf, 4096);
 	}).add;
 
-	// ── 3i. REPRODUCTOR: streaming desde disco (no carga todo a RAM) ───────
+	// ── 3j. REPRODUCTOR: streaming desde disco (no carga todo a RAM) ───────
 	// DiskIn lee el archivo por bloques a través de un buffer "cue", así
 	// puedes reproducir sesiones largas sin ocupar memoria.
 	// Dos versiones porque DiskIn necesita saber el nº de canales al compilar.
@@ -403,7 +448,8 @@ s.waitForBoot({
 
 	~sintSalida = numCanales.collect { |i|
 		Synth(\ent_salidaCanal, [
-			\bus, ~busCanal[i], \out, 0, \amp, 1, \mute, 1, \pan, 0, \idMedidor, i
+			\bus, ~busCanal[i], \out, 0, \amp, 1, \mute, 1, \pan, 0,
+			\idMedidor, i, \busGrab, ~busGrab[i]
 		], ~gSalidas)
 	};
 
@@ -436,6 +482,48 @@ s.waitForBoot({
 	};
 	File.mkdir(~dirGrabaciones);   // crea la carpeta si no existe
 	("Grabaciones → " ++ ~dirGrabaciones).postln;
+
+	// ── Grabación por STEMS: 3 WAVs, uno por canal (post-fader) ────────────
+	~sintsStem = nil;
+	~bufsStem  = nil;
+	~rutasStem = nil;
+
+	// Nombre corto del canal para el archivo: primera línea, en minúsculas
+	// ("BOCA\nhidrófono" → "boca").
+	~nombreCortoCanal = { |i| nombres[i].split(Char.nl)[0].toLower };
+
+	~iniciaStems = {
+		var stamp = Date.getDate.stamp;
+		~rutasStem = numCanales.collect { |i|
+			~dirGrabaciones +/+
+			("sesion_" ++ stamp ++ "_" ++ ~nombreCortoCanal.(i) ++ ".wav")
+		};
+		~bufsStem = numCanales.collect { Buffer.alloc(s, 65536, 1) };
+		// Las operaciones de buffer son asíncronas: sincronizamos con el
+		// servidor antes de abrir los archivos y antes de arrancar los
+		// synths que escriben en ellos.
+		fork {
+			s.sync;
+			numCanales.do { |i|
+				~bufsStem[i].write(~rutasStem[i],
+					~cfg[\formatoRec], ~cfg[\bitsRec], 0, 0, true);   // leaveOpen!
+			};
+			s.sync;
+			~sintsStem = numCanales.collect { |i|
+				Synth(\grab_stem, [\busGrab, ~busGrab[i], \buf, ~bufsStem[i]], ~gGrab)
+			};
+			("Grabando stems: "
+				++ ~rutasStem.collect { |r| PathName(r).fileName }).postln;
+		};
+	};
+
+	~detieneStems = {
+		~sintsStem.do(_.free);
+		~sintsStem = nil;
+		~bufsStem.do { |b| b.close; b.free };
+		~bufsStem = nil;
+		("Stems guardados en: " ++ ~dirGrabaciones).postln;
+	};
 
 	~rutaPlayer      = nil;   // archivo cargado en el reproductor
 	~duracionPlayer  = 0;     // duración en segundos
@@ -569,6 +657,49 @@ s.waitForBoot({
 		{ v.round(0.01).asString };
 	};
 
+	// ── Entrada manual de valores (doble click en perillas y faders) ────────
+	// Interpreta lo tecleado en las unidades que muestra la etiqueta:
+	// Hz (con sufijo "k" para kHz), ms para los tiempos, dB, etc.
+	// Lo que no se pueda leer como número queda en el mínimo del spec —
+	// constrain siempre regresa algo dentro del rango, nunca truena.
+	~parseaValor = { |str, spec|
+		var t = str.asString.toLower.replace(",", ".").replace(" ", "");
+		var mult = 1;
+		if(spec.units == "Hz" and: { t.contains("k") }) { mult = 1000 };
+		if(spec.units == "s") { mult = 0.001 };   // la etiqueta muestra ms
+		spec.constrain(t.asFloat * mult)
+	};
+
+	// Ventanita con un campo de texto: Enter aplica, Esc cancela.
+	~pideValor = { |nombre, spec, actual, alAceptar|
+		var w, tf, pista, mostrado;
+		pista = case
+			{ spec.units == "Hz" } { "Hz — acepta 2k = 2000" }
+			{ spec.units == "s" }  { "ms" }
+			{ spec.units == "dB" } { "dB" }
+			{ spec.units == ":1" } { "proporción (n:1)" }
+			{ spec.units == "x" }  { "factor (1 = sin cambio)" }
+			{ "número" };
+		mostrado = if(spec.units == "s") { (actual * 1000).round(0.1) } { actual.round(0.001) };
+		w = Window(nombre, Rect(500, 400, 210, 66), resizable: false)
+			.alwaysOnTop_(true).background_(colFondo);
+		tf = TextField().font_(fuente).string_(mostrado.asString);
+		tf.action = { |t|
+			alAceptar.(~parseaValor.(t.string, spec));
+			w.close;
+		};
+		w.view.keyDownAction = { |v, char, mod, uni|
+			if(uni == 27) { w.close };   // Esc
+		};
+		w.layout = VLayout(
+			StaticText().string_(nombre ++ "  ·  " ++ pista)
+				.font_(fuentePeq).stringColor_(colTextoSuave),
+			tf
+		).margins_(6).spacing_(3);
+		w.front;
+		tf.focus;
+	};
+
 	// ── Registro de controles ───────────────────────────────────────────────
 	// Cada perilla se registra aquí con su spec y su valor por defecto.
 	// Esto habilita tres funciones con el mismo mecanismo:
@@ -583,6 +714,12 @@ s.waitForBoot({
 	~btnsMute = Array.newClear(numCanales);
 	~faders   = Array.newClear(numCanales);
 	~medidores = Array.newClear(numCanales + 2);   // 3 canales + master L/R
+
+	// ── Estado de los PRESETS RÁPIDOS (slots) ───────────────────────────────
+	~numSlots        = ~cfg[\notasSlots].size;
+	~slots           = Array.newClear(~numSlots);   // un estado completo por slot
+	~slotActivo      = nil;
+	~modoGuardarSlot = false;                       // armado por [GUARDAR EN…]
 
 	// ── Estado y dibujo de la CURVA DE EQ ───────────────────────────────────
 	// Guardamos los valores actuales del EQ de cada canal en un Event;
@@ -673,7 +810,16 @@ s.waitForBoot({
 			.mode_(\vert)                       // arrastre vertical
 			.fixedWidth_(32).fixedHeight_(32)
 			.color_([colStrip, colAcento, colFondo, colTexto])
-			.toolTip_(tip);                     // ← ayuda al pasar el mouse
+			.toolTip_(tip ++ "\n(Doble click: escribir el valor a mano.)");
+
+		// Doble click → ventanita para teclear el valor exacto.
+		k.mouseDownAction = { |view, x, y, mods, boton, clicks|
+			if(clicks == 2) {
+				~pideValor.(nombre, spec, spec.map(k.value), { |v|
+					k.valueAction_(spec.unmap(v));
+				});
+			};
+		};
 
 		lValor = StaticText().string_(~formatea.(spec, inicial))
 			.align_(\center).font_(fuentePeq).stringColor_(colAcento);
@@ -723,23 +869,82 @@ s.waitForBoot({
 		~btnPitch[i].valueAction_(0);
 	};
 
-	// ── PRESETS: guardar / cargar el estado completo ────────────────────────
+	// ── ESTADO COMPLETO: capturar / aplicar ─────────────────────────────────
+	// Un "estado" es un Event con todas las perillas, los procesadores
+	// encendidos y los faders. Es la moneda común de tres mecanismos:
+	// los presets de archivo, los PRESETS RÁPIDOS (slots) y — vía
+	// valueAction — la GUI y los synths quedan al día al aplicarlo.
+	~capturaEstado = {
+		var d = ();
+		d[\canales] = numCanales.collect { |i|
+			var c = ();
+			~reg[i].keysValuesDo { |k, e| c[k] = e[\spec].map(e[\knob].value) };
+			c[\hpfOn]   = ~btnHPF[i].value;
+			c[\distOn]  = ~btnDist[i].value;
+			c[\compOn]  = ~btnComp[i].value;
+			c[\pitchOn] = ~btnPitch[i].value;
+			c[\fader]   = specFader.map(~faders[i].value);
+			c
+		};
+		d[\master] = specFader.map(~faderMaster.value);
+		d
+	};
+
+	// Regresa true si el estado era válido y se aplicó.
+	~aplicaEstado = { |d|
+		if(d.notNil and: { d[\canales].notNil }) {
+			d[\canales].do { |c, i|
+				if(i < numCanales) {
+					~reg[i].keysValuesDo { |k, e|
+						if(c[k].notNil) {
+							e[\knob].valueAction_(e[\spec].unmap(c[k]));
+						};
+					};
+					~btnHPF[i].valueAction_(c[\hpfOn] ? 1);
+					~btnDist[i].valueAction_(c[\distOn] ? 0);
+					~btnComp[i].valueAction_(c[\compOn] ? 0);
+					~btnPitch[i].valueAction_(c[\pitchOn] ? 0);
+					~faders[i].valueAction_(specFader.unmap(c[\fader] ? 0));
+				};
+			};
+			~faderMaster.valueAction_(specFader.unmap(d[\master] ? 0));
+			// Que los anillos del controlador sigan al nuevo estado:
+			~refrescaLEDs.value;
+			true
+		} {
+			false
+		};
+	};
+
+	// ── PRESETS RÁPIDOS (slots): cambiar de estado con UN botón ─────────────
+	~guardarSlot = { |n|
+		~slots[n] = ~capturaEstado.value;
+		~slotActivo = n;
+		~modoGuardarSlot = false;
+		~btnGuardarEn.value = 0;
+		~pintaSlots.value;
+		("Preset rápido guardado en el slot " ++ (n + 1) ++ ".").postln;
+	};
+
+	~cargarSlot = { |n|
+		if(~slots[n].notNil) {
+			~aplicaEstado.(~slots[n]);
+			~slotActivo = n;
+			~pintaSlots.value;
+			("Preset rápido " ++ (n + 1) ++ " cargado.").postln;
+		} {
+			("El slot " ++ (n + 1) ++ " está vacío — guárdale algo con [GUARDAR EN…].").postln;
+		};
+	};
+
+	// ── PRESETS de archivo: guardar / cargar el estado completo ─────────────
 	// Serializamos un Event (diccionario) con writeArchive — formato binario
-	// nativo de SC, se lee de vuelta con Object.readArchive.
+	// nativo de SC, se lee de vuelta con Object.readArchive. El archivo
+	// incluye TAMBIÉN los presets rápidos de la sesión.
 	~guardarPreset = {
 		Dialog.savePanel({ |ruta|
-			var d = ();
-			d[\canales] = numCanales.collect { |i|
-				var c = ();
-				~reg[i].keysValuesDo { |k, e| c[k] = e[\spec].map(e[\knob].value) };
-				c[\hpfOn]   = ~btnHPF[i].value;
-				c[\distOn]  = ~btnDist[i].value;
-				c[\compOn]  = ~btnComp[i].value;
-				c[\pitchOn] = ~btnPitch[i].value;
-				c[\fader]   = specFader.map(~faders[i].value);
-				c
-			};
-			d[\master] = specFader.map(~faderMaster.value);
+			var d = ~capturaEstado.value;
+			d[\slots] = ~slots.copy;
 			d.writeArchive(ruta);
 			("Preset guardado en: " ++ ruta).postln;
 		});
@@ -748,22 +953,14 @@ s.waitForBoot({
 	~cargarPreset = {
 		Dialog.openPanel({ |ruta|
 			var d = Object.readArchive(ruta);
-			if(d.notNil and: { d[\canales].notNil }) {
-				d[\canales].do { |c, i|
-					if(i < numCanales) {
-						~reg[i].keysValuesDo { |k, e|
-							if(c[k].notNil) {
-								e[\knob].valueAction_(e[\spec].unmap(c[k]));
-							};
-						};
-						~btnHPF[i].valueAction_(c[\hpfOn] ? 1);
-						~btnDist[i].valueAction_(c[\distOn] ? 0);
-						~btnComp[i].valueAction_(c[\compOn] ? 0);
-						~btnPitch[i].valueAction_(c[\pitchOn] ? 0);
-						~faders[i].valueAction_(specFader.unmap(c[\fader] ? 0));
-					};
+			if(~aplicaEstado.(d)) {
+				if(d[\slots].notNil) {
+					// collect por índice: si el archivo viene de una config
+					// con otro número de slots, sobra o falta sin tronar.
+					~slots = ~numSlots.collect { |n| d[\slots][n] };
 				};
-				~faderMaster.valueAction_(specFader.unmap(d[\master] ? 0));
+				~slotActivo = nil;
+				~pintaSlots.value;
 				("Preset cargado: " ++ ruta).postln;
 			} {
 				"El archivo no parece ser un preset de esta mezcladora.".postln;
@@ -904,7 +1101,12 @@ s.waitForBoot({
 			.states_([["M", colTexto, colStrip], ["M", Color.white, colRojo]])
 			.font_(fuente).maxHeight_(22)
 			.toolTip_("Mute: silencia este canal.")
-			.action_({ |b| ~mute[i] = (b.value == 1); ~actualizarMutes.() });
+			.action_({ |b|
+				~mute[i] = (b.value == 1);
+				~actualizarMutes.();
+				// El LED del botón de mute del controlador sigue al estado:
+				~cfg[\notasMute][i] !? { |n| ~ledNota.(n, b.value == 1) };
+			});
 		~btnsMute[i] = btnMute;
 
 		btnSolo = Button()
@@ -920,7 +1122,7 @@ s.waitForBoot({
 		// AMPLITUD lineal. Bajo -59.5 dB lo tratamos como silencio (-inf).
 		fader = Slider()
 			.maxWidth_(34).minHeight_(120)
-			.toolTip_("Fader del canal: nivel con el que entra a la mezcla.")
+			.toolTip_("Fader del canal: nivel con el que entra a la mezcla.\n(Doble click: escribir el valor en dB a mano.)")
 			.value_(specFader.unmap(0))
 			.action_({ |sl|
 				var db  = specFader.map(sl.value);
@@ -928,6 +1130,13 @@ s.waitForBoot({
 				lFader.string = if(db <= -59.5) { "-inf" } { db.round(0.1).asString ++ "dB" };
 				~sintSalida[i].set(\amp, amp);
 			});
+		fader.mouseDownAction = { |view, x, y, mods, boton, clicks|
+			if(clicks == 2) {
+				~pideValor.("FADER " ++ ~nombreCortoCanal.(i).toUpper, specFader,
+					specFader.map(fader.value),
+					{ |v| fader.valueAction_(specFader.unmap(v)) });
+			};
+		};
 		~faders[i] = fader;
 
 		medidor = LevelIndicator()
@@ -970,7 +1179,7 @@ s.waitForBoot({
 
 	// ── Strip del MASTER ─────────────────────────────────────────────────────
 	stripMaster = {
-		var titulo, lFader, fader, medL, medR, btnMute, lblRec,
+		var titulo, lFader, fader, medL, medR, btnMute, lblRec, filaRec,
 		    btnGuardar, btnCargar, contenedor;
 
 		titulo = StaticText().string_("MASTER").align_(\center)
@@ -993,7 +1202,7 @@ s.waitForBoot({
 
 		fader = Slider()
 			.maxWidth_(34).minHeight_(160)
-			.toolTip_("Fader general de la mezcla (antes del limitador).")
+			.toolTip_("Fader general de la mezcla (antes del limitador).\n(Doble click: escribir el valor en dB a mano.)")
 			.value_(specFader.unmap(0))
 			.action_({ |sl|
 				var db  = specFader.map(sl.value);
@@ -1001,6 +1210,12 @@ s.waitForBoot({
 				lFader.string = if(db <= -59.5) { "-inf" } { db.round(0.1).asString ++ "dB" };
 				~sintMaster.set(\amp, amp);
 			});
+		fader.mouseDownAction = { |view, x, y, mods, boton, clicks|
+			if(clicks == 2) {
+				~pideValor.("FADER MASTER", specFader, specFader.map(fader.value),
+					{ |v| fader.valueAction_(specFader.unmap(v)) });
+			};
+		};
 		~faderMaster = fader;
 
 		medL = LevelIndicator().maxWidth_(12).minHeight_(160)
@@ -1021,28 +1236,59 @@ s.waitForBoot({
 		lblRec = StaticText().string_("").align_(\center)
 			.font_(fuentePeq).stringColor_(colTextoSuave);
 
+		// Checkbox STEMS: elige entre grabar la mezcla estéreo (apagado) o
+		// 3 WAVs separados, uno por canal, post-fader (encendido).
+		~chkStems = CheckBox()
+			.toolTip_("Apagado: graba la mezcla estéreo tal como la escuchas.\nEncendido: graba 3 WAVs separados, uno por canal (post-fader,\nsin pan) — ideales para mezclar después en un DAW.");
+
 		~btnRec = Button()
 			.states_([["● REC", colRojo, colStripMaster], ["■ STOP", Color.white, colRojo]])
 			.font_(fuente).maxHeight_(24)
-			.toolTip_("Graba la mezcla estéreo (tal como la escuchas) a un WAV 24-bit\nen ./" ++ ~cfg[\carpetaRec] ++ "/ junto a este archivo. Al detener,\nse carga sola en el reproductor de abajo.")
+			.toolTip_("Graba a WAV 24-bit en ./" ++ ~cfg[\carpetaRec] ++ "/ junto a este archivo.\nCon [stems] apagado: la mezcla estéreo (al detener se carga sola\nen el reproductor). Con [stems] encendido: un WAV por canal.")
 			.action_({ |b|
 				if(b.value == 1) {
-					// Nombre con fecha y hora: sesion_AAMMDD_HHMMSS.wav
-					~rutaUltimaGrabacion = ~dirGrabaciones +/+
-						("sesion_" ++ Date.getDate.stamp ++ ".wav");
-					s.record(~rutaUltimaGrabacion, numChannels: 2);
-					lblRec.string = "grabando…";
+					// El modo se decide al ARRANCAR y no se puede cambiar
+					// a media grabación (por eso se desactiva el checkbox).
+					~grabandoStems = ~chkStems.value;
+					~chkStems.enabled = false;
+					if(~grabandoStems) {
+						~iniciaStems.value;
+						lblRec.string = "grabando stems…";
+					} {
+						// Nombre con fecha y hora: sesion_AAMMDD_HHMMSS.wav
+						~rutaUltimaGrabacion = ~dirGrabaciones +/+
+							("sesion_" ++ Date.getDate.stamp ++ ".wav");
+						s.record(~rutaUltimaGrabacion, numChannels: 2);
+						lblRec.string = "grabando…";
+					};
+					~ledNota.(~cfg[\notaRec], true);
 				} {
-					s.stopRecording;
-					lblRec.string = PathName(~rutaUltimaGrabacion).fileName;
-					// Esperamos 1 s a que el servidor cierre el archivo
-					// antes de cargarlo al reproductor.
-					SystemClock.sched(1.0, {
-						~cargarEnPlayer.(~rutaUltimaGrabacion);
-						nil   // (regresar nil = no repetir la tarea)
-					});
+					if(~grabandoStems) {
+						~detieneStems.value;
+						lblRec.string = "3 stems → ./" ++ ~cfg[\carpetaRec] ++ "/";
+					} {
+						s.stopRecording;
+						lblRec.string = PathName(~rutaUltimaGrabacion).fileName;
+						// Esperamos 1 s a que el servidor cierre el archivo
+						// antes de cargarlo al reproductor.
+						SystemClock.sched(1.0, {
+							~cargarEnPlayer.(~rutaUltimaGrabacion);
+							nil   // (regresar nil = no repetir la tarea)
+						});
+					};
+					~chkStems.enabled = true;
+					~ledNota.(~cfg[\notaRec], false);
 				};
 			});
+
+		filaRec = HLayout(
+			[~btnRec, stretch: 1],
+			VLayout(
+				[~chkStems, align: \center],
+				StaticText().string_("stems").align_(\center)
+					.font_(fuentePeq).stringColor_(colTextoSuave)
+			).spacing_(0)
+		).spacing_(4);
 
 		btnGuardar = Button()
 			.states_([["GUARDAR PRESET", colTexto, colStripMaster]])
@@ -1064,7 +1310,7 @@ s.waitForBoot({
 			lFader,
 			[HLayout([fader, align: \center], [medL, align: \center], [medR, align: \center]).spacing_(4), stretch: 1],
 			btnMute,
-			~btnRec,
+			filaRec,
 			lblRec,
 			btnGuardar,
 			btnCargar
@@ -1125,6 +1371,57 @@ s.waitForBoot({
 		contenedor
 	}.value;
 
+	// ── Fila de PRESETS RÁPIDOS (slots) ──────────────────────────────────────
+	// Un botón por slot: click carga; con [GUARDAR EN…] armado, click guarda.
+	// Cada slot también se carga con su nota MIDI (fila baja del X-Touch).
+	filaSlots = {
+		var lbl, contenedor;
+
+		lbl = StaticText().string_("PRESETS RÁPIDOS").font_(fuentePeq)
+			.stringColor_(colTextoSuave);
+
+		~btnsSlot = ~numSlots.collect { |n|
+			Button().font_(fuente).fixedWidth_(36).maxHeight_(26)
+				.toolTip_("Preset rápido " ++ (n + 1) ++ ": click = cargar.\nCon [GUARDAR EN…] armado, click = guardar aquí el estado actual.\nTambién se carga con la nota MIDI " ++ ~cfg[\notasSlots][n] ++ "\n(fila baja del X-Touch Mini).")
+				.action_({
+					if(~modoGuardarSlot) { ~guardarSlot.(n) } { ~cargarSlot.(n) };
+				});
+		};
+
+		~btnGuardarEn = Button()
+			.states_([["GUARDAR EN…", colTexto, colStrip], ["ELIGE SLOT…", Color.white, colRojo]])
+			.font_(fuentePeq).fixedWidth_(92).maxHeight_(26)
+			.toolTip_("Arma el modo guardar: el siguiente slot que presiones\nguardará el estado actual completo de la mezcladora.\nVuelve a presionar para cancelar.")
+			.action_({ |b| ~modoGuardarSlot = (b.value == 1) });
+
+		// Pinta los botones según su estado: vacío (apagado), ocupado
+		// (relieve claro) o activo (acento). También refleja la ocupación
+		// en los LEDs de la fila baja del controlador.
+		~pintaSlots = {
+			~numSlots.do { |n|
+				var lleno = ~slots[n].notNil;
+				~btnsSlot[n].states_([[
+					(n + 1).asString,
+					case { n == ~slotActivo } { Color.black }
+					     { lleno }            { colTexto }
+					     { true }             { colTextoSuave },
+					case { n == ~slotActivo } { colAcento }
+					     { lleno }            { Color.new255(48, 50, 60) }
+					     { true }             { colStrip }
+				]]);
+			};
+			~numSlots.do { |n| ~ledNota.(~cfg[\notasSlots][n], ~slots[n].notNil) };
+		};
+		~pintaSlots.value;
+
+		contenedor = View().background_(colStrip);
+		contenedor.layout = HLayout(
+			*([lbl] ++ ~btnsSlot ++ [nil, ~btnGuardarEn])
+		).margins_(7).spacing_(4);
+
+		contenedor
+	}.value;
+
 	// ── Fila del TÍTULO + estado MIDI ────────────────────────────────────────
 	~mapaActivo = 0;
 	~textoMapa = {
@@ -1136,6 +1433,9 @@ s.waitForBoot({
 	~cambiarMapa = {
 		~mapaActivo = (~mapaActivo + 1) % ~mapasMIDI.size;
 		~lblMapa.string = ~textoMapa.value;
+		// Al cambiar de banco, los anillos del controlador deben mostrar
+		// los valores de los NUEVOS destinos:
+		~refrescaLEDs.value;
 		("Mapa MIDI activo: " ++ ~mapasMIDI[~mapaActivo][\nombre]).postln;
 	};
 
@@ -1163,6 +1463,7 @@ s.waitForBoot({
 		filaTitulo,
 		// HLayout(*array): el asterisco desempaca el arreglo como argumentos.
 		[HLayout(*(numCanales.collect { |i| hazStrip.(i) } ++ [stripMaster])).spacing_(6), stretch: 1],
+		filaSlots,
 		filaPlayer
 	).margins_(8).spacing_(6);
 
@@ -1186,10 +1487,62 @@ s.waitForBoot({
 		}.defer;
 	};
 
+	// ── LEDs del controlador (X-Touch Mini) ─────────────────────────────────
+	// En modo estándar, el X-Touch enciende el LED de un botón al recibir
+	// la MISMA nota de vuelta (velocity 127 = on, 0 = off), y el anillo de
+	// un encoder sigue al MISMO CC de vuelta (valor 0..127), todo por el
+	// canal configurado en la sección 0. Si no hay ~midiOut, no hacen nada.
+	~ledNota = { |nota, encendido|
+		~midiOut !? {
+			~midiOut.noteOn(~cfg[\midiCanalLeds], nota, if(encendido) { 127 } { 0 });
+		};
+	};
+
+	// Manda al controlador el estado actual: anillos de los encoders según
+	// los destinos del mapa ACTIVO + LEDs de mute, REC y slots. Se llama al
+	// cambiar de mapa, al aplicar un estado (slots/presets) y al conectar.
+	~refrescaLEDs = {
+		~midiOut !? {
+			~mapasMIDI[~mapaActivo][\ccs].keysValuesDo { |cc, dest|
+				var v01 = switch(dest[0],
+					\perilla, {
+						var e = ~reg[dest[1]][dest[2]];
+						e !? { e[\knob].value };
+					},
+					\fader,  { ~faders[dest[1]].value },
+					\master, { ~faderMaster.value }
+				);
+				v01 !? {
+					~midiOut.control(~cfg[\midiCanalLeds], cc, (v01 * 127).round.asInteger);
+				};
+			};
+			numCanales.do { |i|
+				~cfg[\notasMute][i] !? { |n| ~ledNota.(n, ~btnsMute[i].value == 1) };
+			};
+			~ledNota.(~cfg[\notaRec], ~btnRec.value == 1);
+			~numSlots.do { |n| ~ledNota.(~cfg[\notasSlots][n], ~slots[n].notNil) };
+		};
+	};
+
 	if(~cfg[\midiHabilitado]) {
 		try {
 			if(MIDIClient.initialized.not) { MIDIClient.init };
 			MIDIIn.connectAll;
+
+			// Salida hacia el controlador, para los LEDs: se busca por
+			// nombre entre los destinos MIDI. Si no está conectado, se
+			// sigue sin retroalimentación (y sin errores).
+			~destinoLeds = MIDIClient.destinations.detect { |e|
+				e.device.asString.containsi(~cfg[\midiNombreControlador]) or: {
+					e.name.asString.containsi(~cfg[\midiNombreControlador])
+				}
+			};
+			~destinoLeds !? {
+				~midiOut = MIDIOut.newByName(~destinoLeds.device, ~destinoLeds.name)
+					.latency_(0);
+				("✓ LEDs del controlador: " ++ ~destinoLeds.device).postln;
+				~refrescaLEDs.value;
+			};
 
 			MIDIdef.cc(\vozCC, { |val, num|
 				var dest = ~mapasMIDI[~mapaActivo][\ccs][num];
@@ -1207,6 +1560,9 @@ s.waitForBoot({
 				}
 				{ num == ~cfg[\notaRec] } {
 					{ ~btnRec.valueAction_(1 - ~btnRec.value) }.defer
+				}
+				{ (idx = ~cfg[\notasSlots].indexOf(num)).notNil } {
+					{ ~cargarSlot.(idx) }.defer
 				};
 			});
 
@@ -1251,11 +1607,15 @@ s.waitForBoot({
 	// ═══════════════════════════════════════════════════════════════════════
 	ventana.onClose = {
 		if(s.isRecording) { s.stopRecording };
+		if(~sintsStem.notNil) { ~detieneStems.value };
 		~detenerPlayer.value;
 		try { ~vistaScope.stop };
-		[~gEntradas, ~gFx, ~gSalidas, ~gPlayer, ~gMaster].do(_.free);
+		[~gEntradas, ~gFx, ~gSalidas, ~gGrab, ~gPlayer, ~gMaster].do(_.free);
 		~busCanal.do(_.free);
+		~busGrab.do(_.free);
 		~scopeBuf.free;
+		// Apagar todos los LEDs del controlador al salir:
+		~midiOut !? { (0..23).do { |n| ~midiOut.noteOn(~cfg[\midiCanalLeds], n, 0) } };
 		OSCdef(\medidorCanal).free;
 		OSCdef(\medidorMaster).free;
 		MIDIdef(\vozCC).free;
@@ -1265,7 +1625,7 @@ s.waitForBoot({
 
 	ventana.front;
 	~vistaScope.start;   // el scope arranca cuando la ventana ya existe
-	("✓ " ++ ~cfg[\titulo] ++ " v3 lista: 3 canales · EQ con curva · dist · comp · pitch · scope · MIDI · rec → ./" ++ ~cfg[\carpetaRec] ++ "/").postln;
+	("✓ " ++ ~cfg[\titulo] ++ " v4 lista: EQ con curva · dist · comp · pitch · scope · presets rápidos · stems · MIDI+LEDs · rec → ./" ++ ~cfg[\carpetaRec] ++ "/").postln;
 });
 )
 
