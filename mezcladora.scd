@@ -1,28 +1,27 @@
 /*
 ================================================================================
-  VOZ ENCARNADA — Mezcladora corporal · v4
+  VOZ ENCARNADA — Mezcladora corporal · v5
   Patch de SuperCollider para Behringer UMC404HD · Arch Linux / PipeWire
 ================================================================================
 
   NOVEDADES DE ESTA VERSIÓN
   -------------------------
-  · PRESETS RÁPIDOS: 8 slots en una fila propia, pensados para el vivo.
-    Un click (o un botón del controlador, fila baja del X-Touch Mini)
-    cambia todo el estado de la mezcladora al instante. Los slots de la
-    sesión se guardan DENTRO del archivo de preset.
-  · LEDs del X-Touch Mini: SC manda MIDI de regreso al controlador — los
-    anillos de los encoders siguen los valores del mapa activo (también
-    al cambiar de mapa o cargar un preset), y los botones de mute, REC y
-    slots se iluminan según su estado.
-  · Mapa CONCIERTO: controles de los tres micrófonos a la vez (drive,
-    campana media, pitch de la voz) — es el mapa activo al arrancar.
-  · Grabación por STEMS: checkbox junto a REC para elegir entre grabar la
-    mezcla estéreo o 3 WAVs separados (uno por canal, post-fader).
-  · Doble click en cualquier perilla o fader: escribe el valor a mano.
+  · REVERB y DELAY como EFECTOS DE ENVÍO: una sola instancia de cada uno
+    (columna FX) con perillas de envío REV/DLY por canal, junto al fader.
+    Así dosificas cuánta reverberancia/eco lleva CADA micrófono, sin
+    triplicar el costo ni ensuciar toda la mezcla desde el master.
+  · REPRODUCTOR con LOOP, ruteo a canal y forma de onda: carga un audio,
+    repítelo sin cortes, y mándalo POR LA CADENA COMPLETA de un canal
+    (EQ, dist, comp, pitch y envíos) para probar los efectos con material
+    grabado. La forma de onda muestra una línea de posición en vivo y
+    puedes hacer click para saltar a cualquier punto.
+  · LATENCIA configurable: sampleRate / blockSize / hardwareBufferSize en
+    la sección 0 (y guía completa para PipeWire en el README).
 
-  VERSIONES ANTERIORES: curva de EQ por canal · pitch shifter granular ·
-  osciloscopio del master · mapas MIDI por bancos · grabación en ./rec/ ·
-  sección 0 de configuración · distorsión/compresor por canal · presets.
+  VERSIONES ANTERIORES: presets rápidos por slots · LEDs del X-Touch Mini ·
+  mapa CONCIERTO · grabación por stems · doble click para teclear valores ·
+  curva de EQ por canal · pitch shifter granular · osciloscopio del master ·
+  mapas MIDI por bancos · grabación en ./rec/ · sección 0 de configuración.
 
   MAPA DE CANALES (configurable en la sección 0):
     Entrada 1 → BOCA      (hidrófono JrF)        [switch: Instrument/Hi-Z]
@@ -34,6 +33,7 @@
     SoundIn → [trim] → [HPF + EQ 3 bandas] → [distorsión] → [compresor]
             → [pitch shifter] → [fader/mute/pan] → suma estéreo
             → [master + limitador] → Main Out
+                └─ envíos post-fader → [reverb / delay] → suma estéreo
 
     ¿Por qué la distorsión ANTES del compresor? Porque la saturación genera
     picos y armónicos nuevos; el compresor al final doma la dinámica de TODO
@@ -78,7 +78,15 @@
 
 	// Ventana: posición y tamaño inicial.
 	ventanaX: 40, ventanaY: 40,
-	ventanaAncho: 1020, ventanaAlto: 900,
+	ventanaAncho: 1170, ventanaAlto: 970,
+
+	// ── Audio / latencia ────────────────────────────────────────────────
+	// nil = respeta lo que tenga el sistema. Bajo PipeWire/JACK, quien
+	// manda es el "quantum" de PipeWire (ver la sección de latencia del
+	// README): estos valores solo aplican donde el servidor pueda pedirlos.
+	sampleRate: nil,           // p. ej. 48000
+	blockSize: 64,             // bloque interno de scsynth (potencia de 2)
+	hardwareBufferSize: nil,   // p. ej. 256 o 128 para menos latencia
 
 	// ── MIDI ────────────────────────────────────────────────────────────
 	// Pensado para el Behringer X-Touch Mini en modo estándar (capa A):
@@ -108,10 +116,13 @@
 //   [\perilla, canal, \clave]  → una perilla registrada del canal (0,1,2)
 //   [\fader, canal]            → el fader de ese canal
 //   [\master]                  → el fader master
+//   [\fx, \clave]              → una perilla de la columna FX (reverb/delay)
 // Claves de perilla disponibles por canal:
 //   \trim \pan \hpfFreq \loFreq \loGain \midFreq \midGain \midQ \hiFreq
 //   \hiGain \drive \mezcla \umbral \ratio \atk \rel \makeup
-//   \pitchRatio \pitchDisp \pitchMezcla
+//   \pitchRatio \pitchDisp \pitchMezcla \sendRev \sendDel
+// Claves de la columna FX:
+//   \revTamano \revDamp \revRetorno \delTiempo \delFb \delFiltro \delRetorno
 ~mapasMIDI = [
 	(
 		// El mapa de arranque: lo más útil en un concierto, de los tres
@@ -199,6 +210,11 @@ s.options.numInputBusChannels  = ~cfg[\entradasHW];
 s.options.numOutputBusChannels = ~cfg[\salidasHW];
 s.options.memSize = 2.pow(16);
 
+// Latencia (ver sección 0 y README): solo se piden si están configurados.
+~cfg[\sampleRate]         !? { |v| s.options.sampleRate = v };
+~cfg[\blockSize]          !? { |v| s.options.blockSize = v };
+~cfg[\hardwareBufferSize] !? { |v| s.options.hardwareBufferSize = v };
+
 // Formato de grabación: WAV de 24 bits — portable a cualquier DAW/editor,
 // ideal para el archivo de tus bitácoras de sesión.
 s.recHeaderFormat = ~cfg[\formatoRec];
@@ -215,8 +231,9 @@ s.waitForBoot({
 	    specTrim, specPan, specHPF, specLoF, specMidF, specMidQ, specHiF,
 	    specGain, specFader, specDrive, specMezcla, specThr, specRatio,
 	    specAtk, specRel, specMakeup, specVolPlayer, specPitch, specDisp,
-	    hazKnob, hazSeccion, hazStrip, stripMaster, filaPlayer, filaSlots,
-	    filaTitulo, btnMapa, ventana;
+	    specTiempoDel, specFb, specFiltroDel, specRetorno,
+	    hazKnob, hazSeccion, hazStrip, stripFx, stripMaster, filaPlayer,
+	    filaSlots, filaTitulo, btnMapa, ventana;
 
 	numCanales = ~cfg[\canales].size;
 	nombres    = ~cfg[\canales].collect { |c| c[\nombre] };
@@ -231,6 +248,12 @@ s.waitForBoot({
 	// Bus mono paralelo por canal: la salida de canal escribe ahí una copia
 	// post-fader de su señal. De estos "taps" lee la grabación por stems.
 	~busGrab = numCanales.collect { Bus.audio(s, 1) };
+
+	// Buses de ENVÍO para los efectos globales: cada canal suma ahí su
+	// señal post-fader multiplicada por su perilla de envío (REV / DLY);
+	// una sola reverb y un solo delay leen la suma y regresan en estéreo.
+	~busRev = Bus.audio(s, 1);
+	~busDel = Bus.audio(s, 1);
 
 	// El orden de creación de los grupos define el orden de ejecución del
 	// audio. Un synth solo puede leer lo que otro escribió si corre DESPUÉS.
@@ -247,6 +270,11 @@ s.waitForBoot({
 	// Grupo para la grabación por stems: se inserta justo después de las
 	// salidas de canal, donde los taps ya tienen la señal post-fader.
 	~gGrab = Group.after(~gSalidas);
+
+	// Grupo de los efectos globales (reverb/delay): después de los envíos
+	// de canal y antes del master, para que sus retornos pasen también por
+	// el fader general y el limitador.
+	~gFxGlobal = Group.after(~gGrab);
 
 	// Buffer especial para el osciloscopio de salida (memoria compartida
 	// entre servidor y GUI: por eso la forma de onda puede verse en vivo).
@@ -362,7 +390,8 @@ s.waitForBoot({
 
 	// ── 3f. SALIDA DE CANAL: fader, mute/solo, pan → suma al master ────────
 	SynthDef(\ent_salidaCanal, { |bus = 0, out = 0, amp = 1, mute = 1, pan = 0,
-	                              idMedidor = 0, busGrab = 0|
+	                              idMedidor = 0, busGrab = 0,
+	                              busRev = 0, busDel = 0, sendRev = 0, sendDel = 0|
 		var sig;
 		sig = In.ar(bus, 1);
 		sig = sig * amp.lag(0.05) * mute.lag(0.02);
@@ -372,7 +401,43 @@ s.waitForBoot({
 		// de aquí lee la grabación por stems. Los buses de audio se limpian
 		// solos en cada bloque, así que no cuesta nada cuando no se graba.
 		Out.ar(busGrab, sig);
+		// Envíos post-fader a los efectos globales: la perilla REV/DLY del
+		// canal decide cuánto de ESTE canal llega a la reverb / al delay.
+		Out.ar(busRev, sig * sendRev.lag(0.05));
+		Out.ar(busDel, sig * sendDel.lag(0.05));
 		Out.ar(out, Pan2.ar(sig, pan.lag(0.05)));
+	}).add;
+
+	// ── 3f-bis. EFECTOS GLOBALES (retornos de envío) ───────────────────────
+	// Leen la SUMA de los envíos de todos los canales y regresan en estéreo
+	// al bus principal, antes del master (pasan por su fader y limitador).
+	// \on multiplica la salida (1 = suena, 0 = silencio con desvanecimiento).
+
+	// Reverb FreeVerb2: tamano = dimensión del "cuarto", damp = cuánto se
+	// apagan los agudos en las reflexiones (1 = cuarto sordo/afelpado).
+	SynthDef(\fx_reverb, { |busIn = 0, out = 0, on = 1,
+	                        tamano = 0.7, damp = 0.5, retorno = 0|
+		var sig, rev;
+		sig = In.ar(busIn, 1);
+		rev = FreeVerb2.ar(sig, sig, 1, tamano.lag(0.1), damp.lag(0.1));
+		Out.ar(out, rev * retorno.dbamp.lag(0.05) * on.lag(0.05));
+	}).add;
+
+	// Delay con retroalimentación filtrada: cada eco pasa por un pasa-bajos
+	// (filtro), así las repeticiones se van oscureciendo como en un delay de
+	// cinta. Mover el tiempo con el delay sonando "estira" el audio (glide
+	// de afinación), un accidente clásico que aquí es una función.
+	SynthDef(\fx_delay, { |busIn = 0, out = 0, on = 1,
+	                       tiempo = 0.4, fb = 0.35, filtro = 3500, retorno = 0|
+		var sig, ecos;
+		sig  = In.ar(busIn, 1);
+		// LocalIn/LocalOut cierran el lazo de retroalimentación dentro del
+		// synth (con un bloque de latencia inherente en el lazo).
+		ecos = LocalIn.ar(1);
+		ecos = DelayC.ar(sig + (ecos * fb.lag(0.1)), 2, tiempo.lag(0.2));
+		ecos = LPF.ar(ecos, filtro.lag(0.1));
+		LocalOut.ar(ecos);
+		Out.ar(out, Pan2.ar(ecos, 0) * retorno.dbamp.lag(0.05) * on.lag(0.05));
 	}).add;
 
 	// ── 3g. MASTER: fader general + limitador de seguridad ─────────────────
@@ -404,15 +469,26 @@ s.waitForBoot({
 
 	// ── 3j. REPRODUCTOR: streaming desde disco (no carga todo a RAM) ───────
 	// DiskIn lee el archivo por bloques a través de un buffer "cue", así
-	// puedes reproducir sesiones largas sin ocupar memoria.
-	// Dos versiones porque DiskIn necesita saber el nº de canales al compilar.
-	SynthDef(\player1, { |buf = 0, amp = 1, out = 0|
-		var sig = DiskIn.ar(1, buf);
+	// puedes reproducir sesiones largas sin ocupar memoria. Con loop = 1
+	// repite sin cortes (regresa al punto donde se "cueó" el archivo).
+	// Cuatro versiones: DiskIn necesita saber el nº de canales al compilar,
+	// y el destino cambia el formato — al MASTER se va en estéreo, a la
+	// CADENA DE UN CANAL se entra en mono (los archivos estéreo se suman).
+	SynthDef(\player1, { |buf = 0, amp = 1, out = 0, loop = 0|
+		var sig = DiskIn.ar(1, buf, loop);
 		Out.ar(out, (sig * amp.lag(0.05)).dup);   // mono → duplicar a estéreo
 	}).add;
-	SynthDef(\player2, { |buf = 0, amp = 1, out = 0|
-		var sig = DiskIn.ar(2, buf);
+	SynthDef(\player2, { |buf = 0, amp = 1, out = 0, loop = 0|
+		var sig = DiskIn.ar(2, buf, loop);
 		Out.ar(out, sig * amp.lag(0.05));
+	}).add;
+	SynthDef(\player1c, { |buf = 0, amp = 1, out = 0, loop = 0|
+		var sig = DiskIn.ar(1, buf, loop);
+		Out.ar(out, sig * amp.lag(0.05));         // mono → bus mono del canal
+	}).add;
+	SynthDef(\player2c, { |buf = 0, amp = 1, out = 0, loop = 0|
+		var sig = DiskIn.ar(2, buf, loop);
+		Out.ar(out, sig.sum * 0.5 * amp.lag(0.05));   // estéreo → mono
 	}).add;
 
 	// Esperar a que el servidor procese los SynthDefs antes de crear synths.
@@ -449,9 +525,14 @@ s.waitForBoot({
 	~sintSalida = numCanales.collect { |i|
 		Synth(\ent_salidaCanal, [
 			\bus, ~busCanal[i], \out, 0, \amp, 1, \mute, 1, \pan, 0,
-			\idMedidor, i, \busGrab, ~busGrab[i]
+			\idMedidor, i, \busGrab, ~busGrab[i],
+			\busRev, ~busRev, \busDel, ~busDel, \sendRev, 0, \sendDel, 0
 		], ~gSalidas)
 	};
+
+	// Efectos globales de envío (una sola instancia de cada uno):
+	~sintRev = Synth(\fx_reverb, [\busIn, ~busRev, \out, 0], ~gFxGlobal);
+	~sintDel = Synth(\fx_delay,  [\busIn, ~busDel, \out, 0], ~gFxGlobal);
 
 	~sintMaster = Synth(\ent_master, [\out, 0, \amp, 1, \mute, 1], ~gMaster);
 	// El scope se crea al final del grupo master: ve la señal ya limitada.
@@ -528,7 +609,11 @@ s.waitForBoot({
 	~rutaPlayer      = nil;   // archivo cargado en el reproductor
 	~duracionPlayer  = 0;     // duración en segundos
 	~canalesArchivo  = 2;     // canales del archivo cargado
+	~srArchivo       = 48000; // sample rate del archivo cargado
 	~tiempoPlayer    = 0;     // posición actual (aprox., en segundos)
+	~inicioFrame     = 0;     // frame desde donde arranca (click en la onda)
+	~loopPlayer      = false; // repetir sin cortes
+	~destPlayer      = 0;     // 0 = master directo; 1..n = cadena del canal n
 	~ampPlayer       = 1;     // volumen del reproductor
 	~sintPlayer      = nil;
 	~bufPlayer       = nil;
@@ -548,13 +633,25 @@ s.waitForBoot({
 			if(~sintPlayer.notNil) { ~detenerPlayer.value };
 			~rutaPlayer     = ruta;
 			~canalesArchivo = sf.numChannels;
+			~srArchivo      = sf.sampleRate;
 			~duracionPlayer = sf.numFrames / sf.sampleRate;
+			~inicioFrame    = 0;
 			sf.close;
 			{
+				var sfVista;
 				~lblArchivo.string = PathName(ruta).fileName;
 				~lblTiempo.string  = "0:00 / " ++ ~fmtTiempo.(~duracionPlayer);
 				~btnPlay.enabled   = true;
 				~btnPlay.value     = 0;
+				// Cargar la forma de onda en la vista (lee picos, no audio
+				// completo a RAM) y regresar el cursor al inicio.
+				sfVista = SoundFile.openRead(ruta);
+				sfVista !? {
+					~vistaOnda.soundfile_(sfVista);
+					~vistaOnda.read(0, sfVista.numFrames);
+					sfVista.close;
+				};
+				~vistaOnda.timeCursorPosition = 0;
 			}.defer;
 		} {
 			("No pude abrir el archivo: " ++ ruta).postln;
@@ -568,9 +665,11 @@ s.waitForBoot({
 		~sintPlayer = nil;
 		~bufPlayer  = nil;
 		~rutinaPlayer = nil;
+		~inicioFrame  = 0;
 		{
 			~btnPlay.value    = 0;
 			~lblTiempo.string = "0:00 / " ++ ~fmtTiempo.(~duracionPlayer);
+			~vistaOnda.timeCursorPosition = 0;
 		}.defer;
 	};
 
@@ -581,23 +680,66 @@ s.waitForBoot({
 	};
 
 	~iniciarPlayer = {
-		var nombreDef = if(~canalesArchivo == 1) { \player1 } { \player2 };
-		// Buffer.cueSoundFile prepara el archivo para streaming con DiskIn.
-		~bufPlayer  = Buffer.cueSoundFile(s, ~rutaPlayer, 0, ~canalesArchivo);
-		~sintPlayer = Synth(nombreDef, [\buf, ~bufPlayer, \amp, ~ampPlayer], ~gPlayer);
-		~tiempoPlayer = 0;
+		// Destino: al MASTER va en estéreo directo a la salida; a un CANAL
+		// entra en mono a su bus, ANTES del EQ — pasa por la cadena entera
+		// (EQ, dist, comp, pitch, fader y envíos), sumándose al micrófono.
+		var aCanal    = ~destPlayer > 0;
+		var nombreDef = if(aCanal) {
+			if(~canalesArchivo == 1) { \player1c } { \player2c }
+		} {
+			if(~canalesArchivo == 1) { \player1 } { \player2 }
+		};
+		var salida = if(aCanal) { ~busCanal[~destPlayer - 1] } { 0 };
+		// Para entrar a un canal, el synth debe correr ANTES del grupo de
+		// FX de ese canal → va al grupo de entradas, junto a los micrófonos.
+		var grupo  = if(aCanal) { ~gEntradas } { ~gPlayer };
+		// Buffer.cueSoundFile prepara el archivo para streaming con DiskIn
+		// (desde ~inicioFrame: ahí regresa también el loop al dar la vuelta).
+		~bufPlayer  = Buffer.cueSoundFile(s, ~rutaPlayer, ~inicioFrame, ~canalesArchivo);
+		~sintPlayer = Synth(nombreDef, [
+			\buf, ~bufPlayer, \amp, ~ampPlayer, \out, salida,
+			\loop, ~loopPlayer.asInteger
+		], grupo);
+		~tiempoPlayer = ~inicioFrame / ~srArchivo;
 		// Reloj de reproducción: corre en AppClock (el hilo de la GUI),
-		// por eso puede actualizar la etiqueta directamente.
+		// por eso puede actualizar la etiqueta y el cursor directamente.
 		~rutinaPlayer = Routine({
-			while { ~tiempoPlayer < ~duracionPlayer and: { ~sintPlayer.notNil } } {
+			while { ~sintPlayer.notNil and: { ~loopPlayer or: { ~tiempoPlayer < ~duracionPlayer } } } {
+				if(~tiempoPlayer >= ~duracionPlayer) {
+					// el loop dio la vuelta: regresa al punto de arranque
+					~tiempoPlayer = ~inicioFrame / ~srArchivo;
+				};
 				~lblTiempo.string = ~fmtTiempo.(~tiempoPlayer)
 					++ " / " ++ ~fmtTiempo.(~duracionPlayer);
-				0.2.wait;
-				~tiempoPlayer = ~tiempoPlayer + 0.2;
+				~vistaOnda.timeCursorPosition = (~tiempoPlayer * ~srArchivo).asInteger;
+				0.1.wait;
+				~tiempoPlayer = ~tiempoPlayer + 0.1;
 			};
 			// El archivo llegó a su fin de forma natural:
 			if(~sintPlayer.notNil) { ~finalizarPlayer.value };
 		}).play(AppClock);
+	};
+
+	// Saltar a un frame del archivo (click en la forma de onda). Si está
+	// sonando, re-arranca ahí mismo con el mismo destino; si no, solo deja
+	// listo el punto de arranque para el siguiente PLAY.
+	~saltarA = { |frame|
+		frame = frame.clip(0, ((~duracionPlayer * ~srArchivo) - 1).max(0)).asInteger;
+		~inicioFrame = frame;
+		if(~sintPlayer.notNil) {
+			~rutinaPlayer !? { ~rutinaPlayer.stop };
+			~sintPlayer.free;
+			~sintPlayer = nil;
+			~bufPlayer !? { ~bufPlayer.close; ~bufPlayer.free; ~bufPlayer = nil };
+			~iniciarPlayer.value;
+		} {
+			~tiempoPlayer = frame / ~srArchivo;
+			{
+				~vistaOnda.timeCursorPosition = frame;
+				~lblTiempo.string = ~fmtTiempo.(~tiempoPlayer)
+					++ " / " ++ ~fmtTiempo.(~duracionPlayer);
+			}.defer;
+		};
 	};
 
 	// ═══════════════════════════════════════════════════════════════════════
@@ -642,6 +784,10 @@ s.waitForBoot({
 	specVolPlayer = ControlSpec(-40, 6, \lin, units: "dB");
 	specPitch     = ControlSpec(0.25, 4, \exp, units: "x");
 	specDisp      = ControlSpec(0, 1, \lin, units: "");
+	specTiempoDel = ControlSpec(0.02, 2, \exp, units: "s");
+	specFb        = ControlSpec(0, 0.95, \lin, units: "");
+	specFiltroDel = ControlSpec(200, 12000, \exp, units: "Hz");
+	specRetorno   = ControlSpec(-60, 6, \lin, units: "dB");
 
 	// Formateo legible del valor según sus unidades.
 	~formatea = { |spec, v|
@@ -707,6 +853,7 @@ s.waitForBoot({
 	//   · PRESETS (guardar/cargar el estado completo)
 	//   · MIDI (los mapas apuntan a estas mismas claves)
 	~reg      = Array.fill(numCanales, { IdentityDictionary.new });
+	~regFx    = IdentityDictionary.new;   // perillas de la columna FX global
 	~btnHPF   = Array.newClear(numCanales);
 	~btnDist  = Array.newClear(numCanales);
 	~btnComp  = Array.newClear(numCanales);
@@ -835,8 +982,13 @@ s.waitForBoot({
 
 		// Registrar para reset/presets/MIDI. valueAction_ (usado por los
 		// tres) mueve la perilla Y dispara su acción → GUI y synth al día.
+		// canal = \fx registra en la columna de efectos globales.
 		if(canal.notNil) {
-			~reg[canal][clave] = (knob: k, spec: spec, default: inicial);
+			if(canal == \fx) {
+				~regFx[clave] = (knob: k, spec: spec, default: inicial);
+			} {
+				~reg[canal][clave] = (knob: k, spec: spec, default: inicial);
+			};
 		};
 
 		VLayout([k, align: \center], lValor, lNombre).spacing_(1)
@@ -887,6 +1039,13 @@ s.waitForBoot({
 			c
 		};
 		d[\master] = specFader.map(~faderMaster.value);
+		d[\fx] = {
+			var f = ();
+			~regFx.keysValuesDo { |k, e| f[k] = e[\spec].map(e[\knob].value) };
+			f[\revOn] = ~btnRev.value;
+			f[\delOn] = ~btnDel.value;
+			f
+		}.value;
 		d
 	};
 
@@ -908,6 +1067,16 @@ s.waitForBoot({
 				};
 			};
 			~faderMaster.valueAction_(specFader.unmap(d[\master] ? 0));
+			// FX globales (presets viejos sin esta sección: se quedan como están)
+			if(d[\fx].notNil) {
+				~regFx.keysValuesDo { |k, e|
+					if(d[\fx][k].notNil) {
+						e[\knob].valueAction_(e[\spec].unmap(d[\fx][k]));
+					};
+				};
+				~btnRev.valueAction_(d[\fx][\revOn] ? 1);
+				~btnDel.valueAction_(d[\fx][\delOn] ? 1);
+			};
 			// Que los anillos del controlador sigan al nuevo estado:
 			~refrescaLEDs.value;
 			true
@@ -971,8 +1140,8 @@ s.waitForBoot({
 	// ── Fábrica de canal completo (strip) ───────────────────────────────────
 	hazStrip = { |i|
 		var titulo, vistaEQ, rejillaEQ, btnHPF, secDist, rejillaDist, secComp,
-		    rejillaComp, secPitch, rejillaPitch, btnMute, btnSolo, btnReset,
-		    lFader, fader, medidor, contenedor;
+		    rejillaComp, secPitch, rejillaPitch, rejillaSends, btnMute, btnSolo,
+		    btnReset, lFader, fader, medidor, contenedor;
 
 		titulo = StaticText().string_(nombres[i]).align_(\center)
 			.font_(fuenteTitulo).stringColor_(colAcento);
@@ -1115,6 +1284,16 @@ s.waitForBoot({
 			.toolTip_("Solo: silencia todos los demás canales.")
 			.action_({ |b| ~solo[i] = (b.value == 1); ~actualizarMutes.() });
 
+		// —— Envíos post-fader a los efectos globales (columna FX) ——
+		rejillaSends = HLayout(
+			hazKnob.(i, \sendRev, "REV",
+				"Envío de este canal a la REVERB global (post-fader):\ncuánto de este micrófono entra al cuarto reverberante.",
+				specMezcla, 0, { |v| ~sintSalida[i].set(\sendRev, v) }),
+			hazKnob.(i, \sendDel, "DLY",
+				"Envío de este canal al DELAY global (post-fader):\ncuánto de este micrófono entra al eco.",
+				specMezcla, 0, { |v| ~sintSalida[i].set(\sendDel, v) })
+		).spacing_(2);
+
 		lFader = StaticText().string_("0.0dB").align_(\center)
 			.font_(fuentePeq).stringColor_(colTexto);
 
@@ -1168,6 +1347,7 @@ s.waitForBoot({
 			).spacing_(3),
 			VLayout(
 				HLayout(btnMute, btnSolo).spacing_(3),
+				rejillaSends,
 				lFader,
 				[HLayout([fader, align: \center], [medidor, align: \center]).spacing_(4), stretch: 1],
 				btnReset
@@ -1176,6 +1356,78 @@ s.waitForBoot({
 
 		contenedor
 	};
+
+	// ── Columna FX: reverb y delay globales (retornos de envío) ─────────────
+	// Una sola instancia de cada efecto; los canales les mandan señal con
+	// sus perillas REV/DLY (junto a cada fader). Aquí se moldea el efecto
+	// en sí y su nivel de retorno a la mezcla.
+	stripFx = {
+		var titulo, secRev, rejillaRev, secDel, rejillaDel, nota, contenedor;
+
+		titulo = StaticText().string_("FX").align_(\center)
+			.font_(fuenteTitulo).stringColor_(colAcento);
+
+		secRev = hazSeccion.("REVERB",
+			"Activa/desactiva la reverb global.\nLos canales le mandan señal con su perilla REV.",
+			{ |v| ~sintRev.set(\on, v) });
+		~btnRev = secRev[1];
+		~btnRev.value = 1;   // encendida por defecto (sin envíos no suena)
+
+		rejillaRev = GridLayout.rows([
+			hazKnob.(\fx, \revTamano, "TAMAÑO",
+				"Dimensión del cuarto reverberante:\npequeño y seco (0) ↔ caverna (1).",
+				specMezcla, 0.7, { |v| ~sintRev.set(\tamano, v) }),
+			hazKnob.(\fx, \revDamp, "DAMP",
+				"Amortiguación de agudos en las reflexiones:\n0 = cuarto brillante, 1 = cuarto sordo/afelpado.",
+				specMezcla, 0.5, { |v| ~sintRev.set(\damp, v) }),
+			hazKnob.(\fx, \revRetorno, "RET",
+				"Nivel con el que la reverb regresa a la mezcla\n(pasa por el fader master y el limitador).",
+				specRetorno, 0, { |v| ~sintRev.set(\retorno, v) })
+		]).spacing_(2);
+
+		secDel = hazSeccion.("DELAY",
+			"Activa/desactiva el delay global.\nLos canales le mandan señal con su perilla DLY.",
+			{ |v| ~sintDel.set(\on, v) });
+		~btnDel = secDel[1];
+		~btnDel.value = 1;   // encendido por defecto (sin envíos no suena)
+
+		rejillaDel = GridLayout.rows(
+			[
+				hazKnob.(\fx, \delTiempo, "TIEMPO",
+					"Tiempo entre repeticiones. Moverlo con el delay sonando\n'estira' el audio (glide de afinación, estilo cinta).",
+					specTiempoDel, 0.4, { |v| ~sintDel.set(\tiempo, v) }),
+				hazKnob.(\fx, \delFb, "FB",
+					"Retroalimentación: cuánto de cada eco vuelve a entrar.\nCerca del máximo, los ecos casi no decaen.",
+					specFb, 0.35, { |v| ~sintDel.set(\fb, v) }),
+				hazKnob.(\fx, \delFiltro, "FILTRO",
+					"Pasa-bajos dentro del lazo: cada repetición se va\noscureciendo, como en un delay de cinta.",
+					specFiltroDel, 3500, { |v| ~sintDel.set(\filtro, v) })
+			],
+			[
+				hazKnob.(\fx, \delRetorno, "RET",
+					"Nivel con el que el delay regresa a la mezcla\n(pasa por el fader master y el limitador).",
+					specRetorno, 0, { |v| ~sintDel.set(\retorno, v) }),
+				nil, nil
+			]
+		).spacing_(2);
+
+		nota = StaticText()
+			.string_("los envíos REV / DLY\nviven junto a cada fader")
+			.align_(\center).font_(fuentePeq).stringColor_(colTextoSuave);
+
+		contenedor = View().background_(colStrip);
+		contenedor.layout = VLayout(
+			titulo,
+			secRev[0],
+			rejillaRev,
+			secDel[0],
+			rejillaDel,
+			nota,
+			nil
+		).margins_(7).spacing_(3);
+
+		contenedor
+	}.value;
 
 	// ── Strip del MASTER ─────────────────────────────────────────────────────
 	stripMaster = {
@@ -1332,16 +1584,57 @@ s.waitForBoot({
 		~lblTiempo = StaticText().string_("0:00 / 0:00").align_(\center)
 			.font_(fuente).stringColor_(colAcento).fixedWidth_(90);
 
+		// Forma de onda del archivo cargado, con línea de posición en vivo.
+		~vistaOnda = SoundFileView()
+			.background_(colFondo)
+			.gridOn_(false)
+			.timeCursorOn_(true)
+			.timeCursorColor_(colAcento)
+			.peakColor_(colVerde)
+			.rmsColor_(Color.new255(170, 220, 170))
+			.fixedHeight_(56)
+			.canFocus_(false)
+			.toolTip_("Forma de onda del archivo cargado; la línea marca la posición.\nClick: saltar a ese punto (también durante la reproducción).");
+		~vistaOnda.mouseUpAction = { |v|
+			if(~rutaPlayer.notNil) { ~saltarA.(v.selection(0)[0]) };
+		};
+
 		~btnPlay = Button()
 			.states_([["▶ PLAY", colVerde, colStrip], ["■ STOP", Color.black, colVerde]])
 			.font_(fuente).fixedWidth_(80).maxHeight_(26)
-			.toolTip_("Reproduce el archivo cargado por la salida principal\n(pasa por el limitador del master, no por los canales).")
+			.toolTip_("Reproduce el archivo cargado hacia el destino elegido\na la derecha (siempre pasa por el limitador del master).")
 			.enabled_(false)
 			.action_({ |b|
 				if(b.value == 1) {
 					if(~rutaPlayer.notNil) { ~iniciarPlayer.value } { b.value = 0 };
 				} {
 					~detenerPlayer.value;
+				};
+			});
+
+		~btnLoop = Button()
+			.states_([["LOOP", colTextoSuave, colStrip], ["LOOP", Color.black, colAzul]])
+			.font_(fuentePeq).fixedWidth_(52).maxHeight_(26)
+			.toolTip_("Repite el archivo sin cortes al llegar al final\n(regresa al punto de arranque). Se puede prender\ny apagar durante la reproducción.")
+			.action_({ |b|
+				~loopPlayer = (b.value == 1);
+				~sintPlayer !? { ~sintPlayer.set(\loop, b.value) };
+			});
+
+		// Destino del reproductor: directo al master, o a la CADENA de un
+		// canal — el audio entra antes del EQ y pasa por todo (EQ, dist,
+		// comp, pitch, fader, envíos), sumándose a lo del micrófono.
+		~menuDest = PopUpMenu()
+			.items_(["→ MASTER"] ++ numCanales.collect { |i|
+				"→ " ++ ~nombreCortoCanal.(i).toUpper })
+			.font_(fuentePeq).fixedWidth_(110)
+			.toolTip_("A dónde va el reproductor:\nMASTER = directo a la salida, sin procesar.\nUn canal = entra a su cadena completa (EQ, distorsión,\ncompresor, pitch y envíos) — ideal para probar los efectos\ncon un audio grabado. Se puede cambiar mientras suena.")
+			.action_({ |m|
+				~destPlayer = m.value;
+				// Si está sonando, re-arranca en el nuevo destino desde la
+				// posición actual (mismo mecanismo que el click en la onda).
+				~sintPlayer !? {
+					~saltarA.((~tiempoPlayer * ~srArchivo).asInteger);
 				};
 			});
 
@@ -1359,14 +1652,19 @@ s.waitForBoot({
 			});
 
 		contenedor = View().background_(colStrip);
-		contenedor.layout = HLayout(
-			tituloP,
-			[~lblArchivo, stretch: 1],
-			~btnPlay,
-			~lblTiempo,
-			layoutVol,
-			btnAbrir
-		).margins_(7).spacing_(8);
+		contenedor.layout = VLayout(
+			~vistaOnda,
+			HLayout(
+				tituloP,
+				[~lblArchivo, stretch: 1],
+				~btnPlay,
+				~btnLoop,
+				~menuDest,
+				~lblTiempo,
+				layoutVol,
+				btnAbrir
+			).spacing_(8)
+		).margins_(7).spacing_(4);
 
 		contenedor
 	}.value;
@@ -1462,7 +1760,7 @@ s.waitForBoot({
 	ventana.layout = VLayout(
 		filaTitulo,
 		// HLayout(*array): el asterisco desempaca el arreglo como argumentos.
-		[HLayout(*(numCanales.collect { |i| hazStrip.(i) } ++ [stripMaster])).spacing_(6), stretch: 1],
+		[HLayout(*(numCanales.collect { |i| hazStrip.(i) } ++ [stripFx, stripMaster])).spacing_(6), stretch: 1],
 		filaSlots,
 		filaPlayer
 	).margins_(8).spacing_(6);
@@ -1482,7 +1780,11 @@ s.waitForBoot({
 					e !? { e[\knob].valueAction_(v01) };
 				},
 				\fader,  { ~faders[dest[1]].valueAction_(v01) },
-				\master, { ~faderMaster.valueAction_(v01) }
+				\master, { ~faderMaster.valueAction_(v01) },
+				\fx,     {
+					var e = ~regFx[dest[1]];
+					e !? { e[\knob].valueAction_(v01) };
+				}
 			);
 		}.defer;
 	};
@@ -1510,7 +1812,11 @@ s.waitForBoot({
 						e !? { e[\knob].value };
 					},
 					\fader,  { ~faders[dest[1]].value },
-					\master, { ~faderMaster.value }
+					\master, { ~faderMaster.value },
+					\fx,     {
+						var e = ~regFx[dest[1]];
+						e !? { e[\knob].value };
+					}
 				);
 				v01 !? {
 					~midiOut.control(~cfg[\midiCanalLeds], cc, (v01 * 127).round.asInteger);
@@ -1610,9 +1916,10 @@ s.waitForBoot({
 		if(~sintsStem.notNil) { ~detieneStems.value };
 		~detenerPlayer.value;
 		try { ~vistaScope.stop };
-		[~gEntradas, ~gFx, ~gSalidas, ~gGrab, ~gPlayer, ~gMaster].do(_.free);
+		[~gEntradas, ~gFx, ~gSalidas, ~gGrab, ~gFxGlobal, ~gPlayer, ~gMaster].do(_.free);
 		~busCanal.do(_.free);
 		~busGrab.do(_.free);
+		[~busRev, ~busDel].do(_.free);
 		~scopeBuf.free;
 		// Apagar todos los LEDs del controlador al salir:
 		~midiOut !? { (0..23).do { |n| ~midiOut.noteOn(~cfg[\midiCanalLeds], n, 0) } };
@@ -1625,7 +1932,7 @@ s.waitForBoot({
 
 	ventana.front;
 	~vistaScope.start;   // el scope arranca cuando la ventana ya existe
-	("✓ " ++ ~cfg[\titulo] ++ " v4 lista: EQ con curva · dist · comp · pitch · scope · presets rápidos · stems · MIDI+LEDs · rec → ./" ++ ~cfg[\carpetaRec] ++ "/").postln;
+	("✓ " ++ ~cfg[\titulo] ++ " v5 lista: EQ con curva · dist · comp · pitch · reverb/delay por envíos · player con loop y ruteo a canal · presets rápidos · stems · MIDI+LEDs · rec → ./" ++ ~cfg[\carpetaRec] ++ "/").postln;
 });
 )
 
@@ -1649,7 +1956,10 @@ siendo el mismo de siempre:
      MAPAS MIDI lo incluyen automáticamente (solo agrega su clave a los
      mapas de la sección 0 si quieres controlarlo desde el controlador).
 
-Ideas naturales para esta mezcladora: un delay/eco para la garganta, una
-reverberancia corta de "cavidad" (FreeVerb), o un ring modulator para la voz.
+(El reverb y el delay ya existen, pero como efectos de ENVÍO globales —
+sección 3f-bis y columna FX. Para un efecto de envío nuevo, copia ese otro
+patrón: bus de envío + perilla send en \ent_salidaCanal + retorno en
+~gFxGlobal.) Ideas naturales como insert: un ring modulator para la voz,
+un bitcrusher para la boca, un freeze granular para la garganta.
 ================================================================================
 */
