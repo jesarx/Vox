@@ -42,6 +42,7 @@ de los nodos en el servidor es el orden de procesamiento:
 SoundIn → [trim] → [HPF + EQ 3 bandas] → [distorsión] → [compresor]
         → [pitch shifter] → [fader / mute / pan] → suma estéreo
         → [master + limitador] → Main Out
+              └─ envíos post-fader (REV / DLY) → [reverb / delay] → suma
 ```
 
 El **limitador del master** (techo ~-0.4 dBFS) está siempre activo, a
@@ -83,6 +84,14 @@ Pitch shifter **granular** (`PitchShift`): transpone sin cambiar la duración.
   altos deshace la señal en textura granular pura.
 - **MEZCLA**: balance entre la señal original y la transpuesta.
 
+### Envíos REV / DLY
+
+Junto al fader de cada canal hay dos perillas de **envío post-fader**:
+cuánto de ese canal entra a la **reverb** y al **delay** globales de la
+columna FX. Son efectos de envío (una sola instancia de cada uno,
+compartida): así dosificas cuánta reverberancia o eco lleva *cada*
+micrófono sin ensuciar toda la mezcla ni triplicar el costo de CPU.
+
 ### Fader, medidor, mute/solo, reset
 - Fader en dB (-60 a +6) con medidor RMS + pico post-fader.
 - **M** silencia el canal; **S** silencia a todos los demás (los solos se
@@ -97,6 +106,25 @@ Pitch shifter **granular** (`PitchShift`): transpone sin cambiar la duración.
 una ventanita para teclear el valor exacto. Se escribe en las unidades que
 muestra la etiqueta: Hz (acepta `2k` = 2000), ms para los tiempos del
 compresor, dB, etc. Enter aplica, Esc cancela.
+
+## Columna FX (reverb y delay)
+
+Entre los canales y el master vive la columna **FX**, con los dos efectos
+globales de envío y sus botones de encendido:
+
+- **REVERB** (`FreeVerb2`): **TAMAÑO** (dimensión del cuarto), **DAMP**
+  (amortiguación de agudos en las reflexiones) y **RET** (nivel de retorno
+  a la mezcla, en dB).
+- **DELAY** (con retroalimentación filtrada): **TIEMPO** entre
+  repeticiones (moverlo con el delay sonando "estira" el audio, como una
+  cinta), **FB** (cuánto de cada eco vuelve a entrar), **FILTRO**
+  (pasa-bajos dentro del lazo: cada eco se oscurece) y **RET**.
+
+Los retornos entran a la mezcla **antes** del fader master y del
+limitador. Todo (perillas y botones de encendido) se guarda en los presets
+y es mapeable por MIDI con destinos `[\fx, \clave]`. Nota: la grabación
+por stems captura las señales **sin** los retornos de FX; la grabación de
+mezcla estéreo sí los incluye.
 
 ## Strip del MASTER
 
@@ -135,8 +163,23 @@ arrancar la grabación y no puede cambiarse a media sesión.
 
 La fila inferior reproduce cualquier archivo de audio por streaming desde
 disco (sin cargarlo a RAM): la última grabación de sesión o cualquier WAV
-que abras con **ABRIR…**. Tiene su propia perilla de volumen y pasa por el
-limitador del master, no por los canales.
+que abras con **ABRIR…**. Tiene su propia perilla de volumen y siempre
+pasa por el limitador del master.
+
+- **Forma de onda**: al cargar un archivo se dibuja su forma de onda con
+  una **línea de posición en vivo**. Click en cualquier punto = saltar ahí
+  (funciona también mientras suena).
+- **LOOP**: repite el archivo sin cortes; se puede prender y apagar
+  durante la reproducción. Si saltaste a un punto con click, el loop
+  regresa a ese punto.
+- **Destino** (menú `→ MASTER / → BOCA / → GARGANTA / → VOZ`): con
+  `→ MASTER` el audio va directo a la salida, sin procesar. Eligiendo un
+  canal, el audio **entra a la cadena completa de ese canal** — EQ,
+  distorsión, compresor, pitch, fader y envíos de reverb/delay — igual
+  que si viniera del micrófono (se suman, si el micrófono está activo).
+  Es la manera de **probar los efectos con un audio grabado**: carga una
+  sesión, actívale LOOP, mándala a un canal y mueve perillas. Se puede
+  cambiar de destino sin detener la reproducción.
 
 ## Presets
 
@@ -223,9 +266,14 @@ a un destino:
 [\master]                   // el fader master
 ```
 
+```supercollider
+[\fx, \clave]               // una perilla de la columna FX (reverb/delay)
+```
+
 Las claves de perilla disponibles están listadas ahí mismo en un
-comentario (`\trim`, `\hpfFreq`, `\drive`, `\pitchRatio`, …). Puedes
-agregar tantos mapas como quieras; el botón los cicla en orden.
+comentario (`\trim`, `\hpfFreq`, `\drive`, `\pitchRatio`, `\sendRev`,
+`\revTamano`, `\delTiempo`, …). Puedes agregar tantos mapas como quieras;
+el botón los cicla en orden.
 
 ## Configuración
 
@@ -241,7 +289,62 @@ Todo lo configurable vive al **inicio del archivo** (sección 0, `~cfg`):
   `notasSlots` — notas MIDI (la cantidad de slots rápidos la define el
   tamaño de `notasSlots`).
 - `midiNombreControlador`, `midiCanalLeds` — retroalimentación de LEDs.
+- `sampleRate`, `blockSize`, `hardwareBufferSize` — audio/latencia (ver
+  la sección siguiente).
 - `~mapasMIDI` — los bancos de mapeo descritos arriba.
+
+## Latencia
+
+La latencia de ida y vuelta (micrófono → proceso → bocinas) depende sobre
+todo del **tamaño de buffer de hardware** y el **sample rate**:
+`latencia ≈ 2 × buffer / sampleRate` (p. ej. 2 × 256 / 48000 ≈ 10.7 ms;
+con 128 ≈ 5.3 ms). Para el gesto vocal en vivo, por debajo de ~10 ms se
+siente inmediato.
+
+### Desde el patch
+
+En la sección 0 están `sampleRate`, `blockSize` y `hardwareBufferSize`
+(por defecto en `nil` = respetar el sistema). **Bajo PipeWire estos
+valores casi siempre son ignorados**: scsynth corre como cliente JACK y
+quien fija el buffer real es el *quantum* de PipeWire — configúralo desde
+el sistema (abajo). En otras configuraciones (JACK puro, otra máquina) sí
+aplican.
+
+### Desde el sistema (PipeWire — recomendado)
+
+Fija el quantum antes de abrir SuperCollider, o en caliente:
+
+```bash
+# opción A: fijar el quantum globalmente en caliente (48000 Hz, 128 muestras)
+pw-metadata -n settings 0 clock.force-rate 48000
+pw-metadata -n settings 0 clock.force-quantum 128
+
+# revisar qué quantum está usando cada cliente:
+pw-top
+
+# regresar al automático:
+pw-metadata -n settings 0 clock.force-quantum 0
+```
+
+```bash
+# opción B: solo para SuperCollider, al lanzarlo:
+PIPEWIRE_LATENCY=128/48000 scide
+```
+
+Baja de 256 → 128 → 64 hasta que aparezcan clicks/dropouts (xruns) y
+quédate un paso arriba. Con la UMC404HD, 128/48000 suele ser estable.
+
+### Otras fuentes de latencia
+
+- El **pitch shifter** granular añade ~150 ms *cuando está encendido*
+  (el tamaño de su ventana de granos; es inherente al método). Si lo
+  quieres más inmediato a costa de más artefactos, baja `windowSize` en
+  el SynthDef `\ins_pitch` (p. ej. a `0.08`).
+- El resto de la cadena (EQ, distorsión, compresor, envíos) trabaja
+  muestra a muestra o por bloque: no añade latencia perceptible.
+- La UMC404HD tiene **monitoreo directo** por hardware (perilla
+  Direct Monitor): útil como referencia de latencia cero de la señal
+  seca, aunque en este proyecto lo que importa es la señal procesada.
 
 ## Extender la cadena de efectos
 
