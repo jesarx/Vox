@@ -293,6 +293,10 @@ Todo lo configurable vive al **inicio del archivo** (sección 0, `~cfg`):
 - `entradasHW` / `salidasHW` — canales que expone el servidor de audio.
 - `carpetaRec`, `formatoRec`, `bitsRec` — dónde y cómo se graba.
 - `ventanaX/Y/Ancho/Alto` — geometría de la ventana.
+- `anchoColFader`, `anchoFader`, `anchoMedidor` — ancho de la columna del
+  fader de cada strip (mute/solo, envíos, fader, medidor, reset) y de sus
+  controles. La columna es de ancho fijo: el espacio sobrante del strip se
+  va al lado del EQ.
 - `midiHabilitado`, `notaCambiarMapa`, `notasMute`, `notaRec`,
   `notasSlots` — notas MIDI (la cantidad de slots rápidos la define el
   tamaño de `notasSlots`).
