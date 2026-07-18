@@ -1,32 +1,30 @@
 /*
 ================================================================================
-  VOZ ENCARNADA — Mezcladora corporal · v5
+  VOZ ENCARNADA — Mezcladora corporal · v6
   Patch de SuperCollider para Behringer UMC404HD · Arch Linux / PipeWire
 ================================================================================
 
   NOVEDADES DE ESTA VERSIÓN
   -------------------------
-  · REVERB y DELAY como EFECTOS DE ENVÍO: una sola instancia de cada uno
-    (columna FX) con perillas de envío REV/DLY por canal, junto al fader.
-    Así dosificas cuánta reverberancia/eco lleva CADA micrófono, sin
-    triplicar el costo ni ensuciar toda la mezcla desde el master.
-  · REPRODUCTOR con LOOP, ruteo a canal y forma de onda: carga un audio,
-    repítelo sin cortes, y mándalo POR LA CADENA COMPLETA de un canal
-    (EQ, dist, comp, pitch y envíos) para probar los efectos con material
-    grabado. La forma de onda muestra una línea de posición en vivo y
-    puedes hacer click para saltar a cualquier punto.
-  · LATENCIA configurable: sampleRate / blockSize / hardwareBufferSize en
-    la sección 0 (y guía completa para PipeWire en el README).
+  · 4 CANALES: se usa también la entrada 4 de la UMC404HD (canal EXTRA,
+    renómbralo en la sección 0 según lo que conectes).
+  · TAP en el delay: marca el pulso a toques y el TIEMPO se fija solo.
+  · Botón RESET en la columna FX (regresa reverb y delay a sus defaults).
+  · 4 presets rápidos (antes 8): los que caben en media fila del X-Touch.
+  · Strips más angostos: fader, medidor y envíos ocupan menos horizontal.
 
-  VERSIONES ANTERIORES: presets rápidos por slots · LEDs del X-Touch Mini ·
-  mapa CONCIERTO · grabación por stems · doble click para teclear valores ·
-  curva de EQ por canal · pitch shifter granular · osciloscopio del master ·
-  mapas MIDI por bancos · grabación en ./rec/ · sección 0 de configuración.
+  VERSIONES ANTERIORES: reverb/delay por envíos · player con loop, ruteo
+  a canal y forma de onda · latencia configurable · presets rápidos por
+  slots · LEDs del X-Touch Mini · mapa CONCIERTO · grabación por stems ·
+  doble click para teclear valores · curva de EQ por canal · pitch shifter
+  granular · osciloscopio del master · mapas MIDI por bancos · grabación
+  en ./rec/ · sección 0 de configuración.
 
   MAPA DE CANALES (configurable en la sección 0):
     Entrada 1 → BOCA      (hidrófono JrF)        [switch: Instrument/Hi-Z]
     Entrada 2 → GARGANTA  (contacto JrF)         [switch: Instrument/Hi-Z]
     Entrada 3 → VOZ       (SM57)                 [switch: Mic]
+    Entrada 4 → EXTRA     (lo que conectes)      [switch: según la fuente]
 
   FLUJO DE SEÑAL POR CANAL:
   -------------------------
@@ -64,7 +62,8 @@
 	canales: [
 		(nombre: "BOCA\nhidrófono", entrada: 0),
 		(nombre: "GARGANTA\ncontacto", entrada: 1),
-		(nombre: "VOZ\nSM57", entrada: 2)
+		(nombre: "VOZ\nSM57", entrada: 2),
+		(nombre: "EXTRA\nentrada 4", entrada: 3)   // renómbralo a tu gusto
 	],
 
 	// Entradas/salidas que expone el servidor de audio.
@@ -78,7 +77,7 @@
 
 	// Ventana: posición y tamaño inicial.
 	ventanaX: 40, ventanaY: 40,
-	ventanaAncho: 1170, ventanaAlto: 970,
+	ventanaAncho: 1180, ventanaAlto: 970,
 
 	// ── Audio / latencia ────────────────────────────────────────────────
 	// nil = respeta lo que tenga el sistema. Bajo PipeWire/JACK, quien
@@ -97,10 +96,10 @@
 	//   · botones fila baja → notas 16..23
 	// Cualquier otro controlador sirve: cambia los números de CC/nota.
 	midiHabilitado: true,
-	notaCambiarMapa: 8,        // botón que cicla entre los mapas de abajo
-	notasMute: [9, 10, 11],    // toggle de mute de los canales 1, 2, 3
-	notaRec: 15,               // toggle de grabación (REC/STOP)
-	notasSlots: [16, 17, 18, 19, 20, 21, 22, 23],   // fila baja → presets rápidos
+	notaCambiarMapa: 8,          // botón que cicla entre los mapas de abajo
+	notasMute: [9, 10, 11, 12],  // toggle de mute de los canales 1-4
+	notaRec: 15,                 // toggle de grabación (REC/STOP)
+	notasSlots: [16, 17, 18, 19],   // fila baja (mitad izq.) → presets rápidos
 
 	// LEDs del controlador: SC manda MIDI de regreso al dispositivo cuyo
 	// nombre contenga este texto (anillos de encoders + botones). El canal
@@ -125,33 +124,33 @@
 //   \revTamano \revDamp \revRetorno \delTiempo \delFb \delFiltro \delRetorno
 ~mapasMIDI = [
 	(
-		// El mapa de arranque: lo más útil en un concierto, de los tres
-		// micrófonos a la vez — saturación y campana media de cada canal,
-		// más el pitch de la voz en los últimos dos encoders.
+		// El mapa de arranque: lo más útil en un concierto, de los cuatro
+		// micrófonos a la vez — saturación y campana media de cada canal.
+		// (El pitch de la voz vive en el mapa VOZ, a dos toques del botón.)
 		nombre: "CONCIERTO",
 		ccs: Dictionary.newFrom([
-			1, [\perilla, 0, \drive],       // encoders 1-3 → drive de cada canal
+			1, [\perilla, 0, \drive],     // encoders 1-4 → drive de cada canal
 			2, [\perilla, 1, \drive],
 			3, [\perilla, 2, \drive],
-			4, [\perilla, 0, \midGain],     // encoders 4-6 → campana media
-			5, [\perilla, 1, \midGain],
-			6, [\perilla, 2, \midGain],
-			7, [\perilla, 2, \pitchRatio],  // encoders 7-8 → pitch de la voz
-			8, [\perilla, 2, \pitchMezcla],
-			9, [\master]                    // fader físico → master
+			4, [\perilla, 3, \drive],
+			5, [\perilla, 0, \midGain],   // encoders 5-8 → campana media
+			6, [\perilla, 1, \midGain],
+			7, [\perilla, 2, \midGain],
+			8, [\perilla, 3, \midGain],
+			9, [\master]                  // fader físico → master
 		])
 	),
 	(
 		nombre: "MEZCLA",
 		ccs: Dictionary.newFrom([
-			1, [\fader, 0],           // encoder 1 → fader BOCA
-			2, [\fader, 1],           // encoder 2 → fader GARGANTA
-			3, [\fader, 2],           // encoder 3 → fader VOZ
-			4, [\master],             // encoder 4 → fader MASTER
-			5, [\perilla, 0, \trim],  // encoders 5-7 → trims
+			1, [\fader, 0],           // encoders 1-4 → faders de los canales
+			2, [\fader, 1],
+			3, [\fader, 2],
+			4, [\fader, 3],
+			5, [\perilla, 0, \trim],  // encoders 5-8 → trims
 			6, [\perilla, 1, \trim],
 			7, [\perilla, 2, \trim],
-			8, [\perilla, 2, \pan],   // encoder 8 → pan de la voz
+			8, [\perilla, 3, \trim],
 			9, [\master]              // fader físico → master
 		])
 	),
@@ -194,6 +193,20 @@
 			6, [\perilla, 2, \pitchDisp],
 			7, [\perilla, 2, \pitchMezcla],
 			8, [\fader, 2],
+			9, [\master]
+		])
+	),
+	(
+		nombre: "EXTRA",
+		ccs: Dictionary.newFrom([
+			1, [\perilla, 3, \trim],
+			2, [\perilla, 3, \hpfFreq],
+			3, [\perilla, 3, \loGain],
+			4, [\perilla, 3, \midGain],
+			5, [\perilla, 3, \hiGain],
+			6, [\perilla, 3, \drive],
+			7, [\perilla, 3, \mezcla],
+			8, [\fader, 3],
 			9, [\master]
 		])
 	)
@@ -948,14 +961,15 @@ s.waitForBoot({
 
 	// ── Fábrica de perillas ─────────────────────────────────────────────────
 	// canal: índice para registrarla (nil = no registrar, p. ej. el volumen
-	//        del reproductor).
+	//        del reproductor; \fx = columna de efectos globales).
 	// accion: recibe el valor YA mapeado cada vez que giras la perilla.
-	hazKnob = { |canal, clave, nombre, tip, spec, inicial, accion|
+	// ancho: tamaño de la perilla (32 normal; 24 = compacta, p. ej. envíos).
+	hazKnob = { |canal, clave, nombre, tip, spec, inicial, accion, ancho = 32|
 		var k, lNombre, lValor;
 
 		k = Knob()
 			.mode_(\vert)                       // arrastre vertical
-			.fixedWidth_(32).fixedHeight_(32)
+			.fixedWidth_(ancho).fixedHeight_(ancho)
 			.color_([colStrip, colAcento, colFondo, colTexto])
 			.toolTip_(tip ++ "\n(Doble click: escribir el valor a mano.)");
 
@@ -1019,6 +1033,16 @@ s.waitForBoot({
 		~btnDist[i].valueAction_(0);
 		~btnComp[i].valueAction_(0);
 		~btnPitch[i].valueAction_(0);
+	};
+
+	// ── RESET de la columna FX ──────────────────────────────────────────────
+	// Regresa reverb y delay a sus valores por defecto, encendidos.
+	~resetFx = {
+		~regFx.do { |e|
+			e[\knob].valueAction_(e[\spec].unmap(e[\default]));
+		};
+		~btnRev.valueAction_(1);
+		~btnDel.valueAction_(1);
 	};
 
 	// ── ESTADO COMPLETO: capturar / aplicar ─────────────────────────────────
@@ -1285,14 +1309,15 @@ s.waitForBoot({
 			.action_({ |b| ~solo[i] = (b.value == 1); ~actualizarMutes.() });
 
 		// —— Envíos post-fader a los efectos globales (columna FX) ——
+		// Perillas compactas (24 px) para mantener angosta la columna.
 		rejillaSends = HLayout(
 			hazKnob.(i, \sendRev, "REV",
 				"Envío de este canal a la REVERB global (post-fader):\ncuánto de este micrófono entra al cuarto reverberante.",
-				specMezcla, 0, { |v| ~sintSalida[i].set(\sendRev, v) }),
+				specMezcla, 0, { |v| ~sintSalida[i].set(\sendRev, v) }, 24),
 			hazKnob.(i, \sendDel, "DLY",
 				"Envío de este canal al DELAY global (post-fader):\ncuánto de este micrófono entra al eco.",
-				specMezcla, 0, { |v| ~sintSalida[i].set(\sendDel, v) })
-		).spacing_(2);
+				specMezcla, 0, { |v| ~sintSalida[i].set(\sendDel, v) }, 24)
+		).spacing_(1);
 
 		lFader = StaticText().string_("0.0dB").align_(\center)
 			.font_(fuentePeq).stringColor_(colTexto);
@@ -1300,7 +1325,7 @@ s.waitForBoot({
 		// El fader trabaja en dB en la GUI, pero al synth le mandamos
 		// AMPLITUD lineal. Bajo -59.5 dB lo tratamos como silencio (-inf).
 		fader = Slider()
-			.maxWidth_(34).minHeight_(120)
+			.maxWidth_(22).minHeight_(120)
 			.toolTip_("Fader del canal: nivel con el que entra a la mezcla.\n(Doble click: escribir el valor en dB a mano.)")
 			.value_(specFader.unmap(0))
 			.action_({ |sl|
@@ -1319,7 +1344,7 @@ s.waitForBoot({
 		~faders[i] = fader;
 
 		medidor = LevelIndicator()
-			.maxWidth_(12).minHeight_(120)
+			.maxWidth_(9).minHeight_(120)
 			.warning_(0.85).critical_(0.97).drawsPeak_(true)
 			.toolTip_("Nivel post-fader del canal (RMS + pico).");
 		~medidores[i] = medidor;
@@ -1362,7 +1387,8 @@ s.waitForBoot({
 	// sus perillas REV/DLY (junto a cada fader). Aquí se moldea el efecto
 	// en sí y su nivel de retorno a la mezcla.
 	stripFx = {
-		var titulo, secRev, rejillaRev, secDel, rejillaDel, nota, contenedor;
+		var titulo, secRev, rejillaRev, secDel, rejillaDel, btnTap,
+		    btnResetFx, nota, contenedor;
 
 		titulo = StaticText().string_("FX").align_(\center)
 			.font_(fuenteTitulo).stringColor_(colAcento);
@@ -1411,6 +1437,28 @@ s.waitForBoot({
 			]
 		).spacing_(2);
 
+		// TAP: marca el pulso a toques y el TIEMPO del delay se fija al
+		// intervalo entre los dos últimos. Pasa por la perilla (valueAction)
+		// → GUI, synth, presets y LEDs quedan sincronizados.
+		btnTap = Button()
+			.states_([["TAP", Color.black, colAcento]])
+			.font_(fuente).maxHeight_(24)
+			.toolTip_("Marca el pulso: dos o más toques seguidos fijan el TIEMPO\ndel delay al intervalo entre ellos (entre 20 ms y 2 s).\nMás de 2.5 s sin tocar reinicia la cuenta.")
+			.action_({
+				var ahora = Main.elapsedTime, e;
+				if(~ultimoTap.notNil and: { (ahora - ~ultimoTap) < 2.5 }) {
+					e = ~regFx[\delTiempo];
+					e[\knob].valueAction_(e[\spec].unmap(ahora - ~ultimoTap));
+				};
+				~ultimoTap = ahora;
+			});
+
+		btnResetFx = Button()
+			.states_([["RESET", colAzul, colStrip]])
+			.font_(fuentePeq).maxHeight_(20)
+			.toolTip_("Regresa la reverb y el delay a sus valores por defecto\n(ambos encendidos). No toca los envíos de los canales.")
+			.action_({ ~resetFx.value });
+
 		nota = StaticText()
 			.string_("los envíos REV / DLY\nviven junto a cada fader")
 			.align_(\center).font_(fuentePeq).stringColor_(colTextoSuave);
@@ -1422,8 +1470,10 @@ s.waitForBoot({
 			rejillaRev,
 			secDel[0],
 			rejillaDel,
+			btnTap,
 			nota,
-			nil
+			nil,
+			btnResetFx
 		).margins_(7).spacing_(3);
 
 		contenedor
@@ -1453,7 +1503,7 @@ s.waitForBoot({
 			.font_(fuentePeq).stringColor_(colTexto);
 
 		fader = Slider()
-			.maxWidth_(34).minHeight_(160)
+			.maxWidth_(26).minHeight_(160)
 			.toolTip_("Fader general de la mezcla (antes del limitador).\n(Doble click: escribir el valor en dB a mano.)")
 			.value_(specFader.unmap(0))
 			.action_({ |sl|
@@ -1470,10 +1520,10 @@ s.waitForBoot({
 		};
 		~faderMaster = fader;
 
-		medL = LevelIndicator().maxWidth_(12).minHeight_(160)
+		medL = LevelIndicator().maxWidth_(10).minHeight_(160)
 			.warning_(0.85).critical_(0.97).drawsPeak_(true)
 			.toolTip_("Salida izquierda (post-limitador).");
-		medR = LevelIndicator().maxWidth_(12).minHeight_(160)
+		medR = LevelIndicator().maxWidth_(10).minHeight_(160)
 			.warning_(0.85).critical_(0.97).drawsPeak_(true)
 			.toolTip_("Salida derecha (post-limitador).");
 		~medidores[numCanales]     = medL;
