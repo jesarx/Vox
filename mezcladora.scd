@@ -11,7 +11,9 @@
   · TAP en el delay: marca el pulso a toques y el TIEMPO se fija solo.
   · Botón RESET en la columna FX (regresa reverb y delay a sus defaults).
   · 4 presets rápidos (antes 8): los que caben en media fila del X-Touch.
-  · Strips más angostos: fader, medidor y envíos ocupan menos horizontal.
+  · La columna del fader (mute/solo, envíos, fader, medidor, reset) tiene
+    ancho FIJO — el espacio sobrante del strip se va al lado del EQ.
+    Ajustable en la sección 0: anchoColFader / anchoFader / anchoMedidor.
 
   VERSIONES ANTERIORES: reverb/delay por envíos · player con loop, ruteo
   a canal y forma de onda · latencia configurable · presets rápidos por
@@ -77,7 +79,15 @@
 
 	// Ventana: posición y tamaño inicial.
 	ventanaX: 40, ventanaY: 40,
-	ventanaAncho: 1180, ventanaAlto: 970,
+	ventanaAncho: 1120, ventanaAlto: 970,
+
+	// Geometría de la columna del fader (la parte derecha de cada strip:
+	// mute/solo, envíos REV/DLY, fader, medidor y reset). El ancho de la
+	// columna está FIJO: el espacio sobrante del strip se va al lado del
+	// EQ, no a esta columna. Ajusta fino aquí:
+	anchoColFader: 78,   // ancho total de la columna (px)
+	anchoFader: 34,      // ancho del fader
+	anchoMedidor: 12,    // ancho del medidor de nivel
 
 	// ── Audio / latencia ────────────────────────────────────────────────
 	// nil = respeta lo que tenga el sistema. Bajo PipeWire/JACK, quien
@@ -1165,7 +1175,7 @@ s.waitForBoot({
 	hazStrip = { |i|
 		var titulo, vistaEQ, rejillaEQ, btnHPF, secDist, rejillaDist, secComp,
 		    rejillaComp, secPitch, rejillaPitch, rejillaSends, btnMute, btnSolo,
-		    btnReset, lFader, fader, medidor, contenedor;
+		    btnReset, lFader, fader, medidor, colFader, contenedor;
 
 		titulo = StaticText().string_(nombres[i]).align_(\center)
 			.font_(fuenteTitulo).stringColor_(colAcento);
@@ -1309,14 +1319,13 @@ s.waitForBoot({
 			.action_({ |b| ~solo[i] = (b.value == 1); ~actualizarMutes.() });
 
 		// —— Envíos post-fader a los efectos globales (columna FX) ——
-		// Perillas compactas (24 px) para mantener angosta la columna.
 		rejillaSends = HLayout(
 			hazKnob.(i, \sendRev, "REV",
 				"Envío de este canal a la REVERB global (post-fader):\ncuánto de este micrófono entra al cuarto reverberante.",
-				specMezcla, 0, { |v| ~sintSalida[i].set(\sendRev, v) }, 24),
+				specMezcla, 0, { |v| ~sintSalida[i].set(\sendRev, v) }),
 			hazKnob.(i, \sendDel, "DLY",
 				"Envío de este canal al DELAY global (post-fader):\ncuánto de este micrófono entra al eco.",
-				specMezcla, 0, { |v| ~sintSalida[i].set(\sendDel, v) }, 24)
+				specMezcla, 0, { |v| ~sintSalida[i].set(\sendDel, v) })
 		).spacing_(1);
 
 		lFader = StaticText().string_("0.0dB").align_(\center)
@@ -1325,7 +1334,7 @@ s.waitForBoot({
 		// El fader trabaja en dB en la GUI, pero al synth le mandamos
 		// AMPLITUD lineal. Bajo -59.5 dB lo tratamos como silencio (-inf).
 		fader = Slider()
-			.maxWidth_(22).minHeight_(120)
+			.maxWidth_(~cfg[\anchoFader]).minHeight_(120)
 			.toolTip_("Fader del canal: nivel con el que entra a la mezcla.\n(Doble click: escribir el valor en dB a mano.)")
 			.value_(specFader.unmap(0))
 			.action_({ |sl|
@@ -1344,7 +1353,7 @@ s.waitForBoot({
 		~faders[i] = fader;
 
 		medidor = LevelIndicator()
-			.maxWidth_(9).minHeight_(120)
+			.maxWidth_(~cfg[\anchoMedidor]).minHeight_(120)
 			.warning_(0.85).critical_(0.97).drawsPeak_(true)
 			.toolTip_("Nivel post-fader del canal (RMS + pico).");
 		~medidores[i] = medidor;
@@ -1354,6 +1363,18 @@ s.waitForBoot({
 			.font_(fuentePeq).maxHeight_(20)
 			.toolTip_("Regresa todas las perillas de este canal a sus valores\npor defecto (HPF on; dist, comp y pitch off).\nNo toca fader ni mute/solo.")
 			.action_({ ~resetCanal.(i) });
+
+		// La columna del fader vive en un contenedor de ANCHO FIJO
+		// (~cfg[\anchoColFader]): así el espacio sobrante del strip se lo
+		// queda el lado del EQ y no se abre un hueco junto al fader.
+		colFader = View().fixedWidth_(~cfg[\anchoColFader]);
+		colFader.layout = VLayout(
+			HLayout(btnMute, btnSolo).spacing_(3),
+			rejillaSends,
+			lFader,
+			[HLayout([fader, align: \center], [medidor, align: \center]).spacing_(4), stretch: 1],
+			btnReset
+		).margins_(0).spacing_(3);
 
 		contenedor = View().background_(colStrip);
 		contenedor.layout = HLayout(
@@ -1370,13 +1391,7 @@ s.waitForBoot({
 				rejillaPitch,
 				nil
 			).spacing_(3),
-			VLayout(
-				HLayout(btnMute, btnSolo).spacing_(3),
-				rejillaSends,
-				lFader,
-				[HLayout([fader, align: \center], [medidor, align: \center]).spacing_(4), stretch: 1],
-				btnReset
-			).spacing_(3)
+			colFader
 		).margins_(7).spacing_(5);
 
 		contenedor
@@ -1503,7 +1518,7 @@ s.waitForBoot({
 			.font_(fuentePeq).stringColor_(colTexto);
 
 		fader = Slider()
-			.maxWidth_(26).minHeight_(160)
+			.maxWidth_(~cfg[\anchoFader]).minHeight_(160)
 			.toolTip_("Fader general de la mezcla (antes del limitador).\n(Doble click: escribir el valor en dB a mano.)")
 			.value_(specFader.unmap(0))
 			.action_({ |sl|
@@ -1520,10 +1535,10 @@ s.waitForBoot({
 		};
 		~faderMaster = fader;
 
-		medL = LevelIndicator().maxWidth_(10).minHeight_(160)
+		medL = LevelIndicator().maxWidth_(~cfg[\anchoMedidor]).minHeight_(160)
 			.warning_(0.85).critical_(0.97).drawsPeak_(true)
 			.toolTip_("Salida izquierda (post-limitador).");
-		medR = LevelIndicator().maxWidth_(10).minHeight_(160)
+		medR = LevelIndicator().maxWidth_(~cfg[\anchoMedidor]).minHeight_(160)
 			.warning_(0.85).critical_(0.97).drawsPeak_(true)
 			.toolTip_("Salida derecha (post-limitador).");
 		~medidores[numCanales]     = medL;
