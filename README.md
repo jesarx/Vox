@@ -1,6 +1,6 @@
 # Voz encarnada — mezcladora corporal
 
-Mezcladora de 3 canales escrita en [SuperCollider](https://supercollider.github.io/),
+Mezcladora de 4 canales escrita en [SuperCollider](https://supercollider.github.io/),
 pensada para performance con micrófonos de contacto e hidrófonos sobre el
 cuerpo (boca, garganta) más un micrófono de voz. Todo vive en un solo
 archivo: [`mezcladora.scd`](mezcladora.scd).
@@ -8,7 +8,7 @@ archivo: [`mezcladora.scd`](mezcladora.scd).
 ## Requisitos
 
 - SuperCollider 3.12 o superior (probado en Arch Linux con PipeWire).
-- Una interfaz de audio con al menos 3 entradas. El patch está pensado
+- Una interfaz de audio con al menos 4 entradas. El patch está pensado
   para la **Behringer UMC404HD**, pero cualquier interfaz sirve ajustando
   la configuración.
 - Opcional: un controlador MIDI. Los mapas incluidos están pensados para
@@ -21,6 +21,7 @@ archivo: [`mezcladora.scd`](mezcladora.scd).
 | BOCA | 1 | hidrófono JrF | Instrument / Hi-Z |
 | GARGANTA | 2 | micrófono de contacto JrF | Instrument / Hi-Z |
 | VOZ | 3 | Shure SM57 | Mic |
+| EXTRA | 4 | libre (renómbralo en la configuración) | según la fuente |
 
 ## Uso
 
@@ -119,6 +120,11 @@ globales de envío y sus botones de encendido:
   repeticiones (moverlo con el delay sonando "estira" el audio, como una
   cinta), **FB** (cuánto de cada eco vuelve a entrar), **FILTRO**
   (pasa-bajos dentro del lazo: cada eco se oscurece) y **RET**.
+- **TAP**: marca el pulso a toques — dos o más toques seguidos fijan el
+  TIEMPO del delay al intervalo entre ellos (20 ms a 2 s). Más de 2.5 s
+  sin tocar reinicia la cuenta.
+- **RESET**: regresa la reverb y el delay a sus valores por defecto
+  (ambos encendidos). No toca los envíos de los canales.
 
 Los retornos entran a la mezcla **antes** del fader master y del
 limitador. Todo (perillas y botones de encendido) se guarda en los presets
@@ -148,8 +154,9 @@ automáticamente en el reproductor.
 ### Grabación por stems
 
 Con el checkbox **stems** (junto a REC) encendido, en lugar de la mezcla
-estéreo se graban **3 WAVs separados, uno por canal**
-(`sesion_..._boca.wav`, `sesion_..._garganta.wav`, `sesion_..._voz.wav`).
+estéreo se graba **un WAV separado por canal**
+(`sesion_..._boca.wav`, `sesion_..._garganta.wav`, `sesion_..._voz.wav`,
+`sesion_..._extra.wav`).
 La señal de cada stem es **post-fader y pre-pan** (mono, con todos los
 efectos del canal y el nivel del fader aplicados): lo que ese canal aportó
 a la mezcla, listo para re-mezclar en un DAW. El modo se elige antes de
@@ -185,10 +192,10 @@ pasa por el limitador del master.
 
 ### Presets rápidos (slots)
 
-La fila **PRESETS RÁPIDOS** tiene 8 slots pensados para el vivo: **un
+La fila **PRESETS RÁPIDOS** tiene 4 slots pensados para el vivo: **un
 click carga el slot completo al instante** (todas las perillas,
 procesadores y faders), sin diálogos de archivos. También se cargan con
-los botones de la **fila baja del X-Touch Mini** (notas 16–23).
+los botones de la **fila baja del X-Touch Mini** (notas 16–19).
 
 Para guardar: presiona **[GUARDAR EN…]** (queda armado en rojo) y luego el
 slot destino — el estado actual completo se guarda ahí. Los botones
@@ -200,7 +207,7 @@ en los slots ocupados.
 
 **GUARDAR PRESET** serializa el estado completo de la mezcladora (todas las
 perillas, qué procesadores están encendidos y los faders) **junto con los
-8 presets rápidos de la sesión** a un archivo binario; **CARGAR PRESET**
+presets rápidos de la sesión** a un archivo binario; **CARGAR PRESET**
 restaura todo, slots incluidos. Esencial para performance: llegas, cargas
 tu preset, y tanto la mezcladora como tus presets rápidos quedan como en
 el ensayo.
@@ -224,20 +231,21 @@ baja → notas 16–23.
 
 | Mapa | Encoders 1–8 | CC 9 (fader) |
 |---|---|---|
-| **CONCIERTO** *(activo al arrancar)* | drive de los 3 canales, campana media (MID g) de los 3 canales, pitch y mezcla de pitch de la voz | master |
-| **MEZCLA** | faders de los 3 canales, master, trims de los 3 canales, pan de la voz | master |
+| **CONCIERTO** *(activo al arrancar)* | drive de los 4 canales, campana media (MID g) de los 4 canales | master |
+| **MEZCLA** | faders de los 4 canales, trims de los 4 canales | master |
 | **BOCA** | trim, HPF, LO g, MID g, HI g, drive, mezcla dist, fader del canal | master |
 | **GARGANTA** | igual que BOCA, para el canal 2 | master |
 | **VOZ** | trim, HPF, MID g, drive, pitch, dispersión, mezcla pitch, fader del canal | master |
+| **EXTRA** | igual que BOCA, para el canal 4 | master |
 
 Notas fijas (independientes del mapa activo):
 
 | Nota | Acción |
 |---|---|
 | 8 | ciclar al siguiente mapa |
-| 9, 10, 11 | toggle de mute de los canales 1, 2, 3 |
+| 9, 10, 11, 12 | toggle de mute de los canales 1–4 |
 | 15 | toggle de grabación (REC/STOP) |
-| 16–23 | cargar el preset rápido 1–8 (fila baja del X-Touch Mini) |
+| 16–19 | cargar el preset rápido 1–4 (fila baja del X-Touch Mini) |
 
 ### LEDs del controlador
 
