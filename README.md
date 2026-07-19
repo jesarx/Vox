@@ -41,14 +41,16 @@ de los nodos en el servidor es el orden de procesamiento:
 
 ```
 SoundIn → [trim] → [HPF + EQ 3 bandas] → [distorsión] → [compresor]
-        → [pitch shifter] → [fader / mute / pan] → suma estéreo
-        → [master + limitador] → Main Out
+        → [pitch shifter] → [ring modulator] → [fader / mute / pan]
+        → suma estéreo → [master + limitador] → Main Out
               └─ envíos post-fader (REV / DLY) → [reverb / delay] → suma
 ```
 
-El **limitador del master** (techo ~-0.4 dBFS) está siempre activo, a
-propósito: con un hidrófono en la boca frente a bocinas, un feedback
-inesperado puede alcanzar niveles peligrosos para oídos y monitores.
+El **limitador del master** está siempre activo, a propósito: con un
+hidrófono en la boca frente a bocinas, un feedback inesperado puede
+alcanzar niveles peligrosos para oídos y monitores. Su techo es ajustable
+con la perilla **LIM** del strip MASTER (-12 a 0 dBFS, por defecto -0.4):
+bajarlo lo convierte en un efecto audible que aplasta la mezcla.
 
 ## Secciones de cada canal
 
@@ -85,6 +87,14 @@ Pitch shifter **granular** (`PitchShift`): transpone sin cambiar la duración.
   altos deshace la señal en textura granular pura.
 - **MEZCLA**: balance entre la señal original y la transpuesta.
 
+### RING MOD
+
+Ring modulator clásico: multiplica la señal por una senoidal, dejando las
+sumas y restas de cada parcial con la portadora (voz metálica, de campana,
+"dalek"). **FREC** fija la portadora — grave (30–100 Hz) suena a trémolo
+áspero, media/aguda a campana inarmónica — y **MEZCLA** dosifica el
+balance con la señal limpia.
+
 ### Envíos REV / DLY
 
 Junto al fader de cada canal hay dos perillas de **envío post-fader**:
@@ -98,7 +108,7 @@ micrófono sin ensuciar toda la mezcla ni triplicar el costo de CPU.
 - **M** silencia el canal; **S** silencia a todos los demás (los solos se
   combinan entre canales).
 - **RESET** regresa todas las perillas del canal a sus valores por defecto
-  (HPF encendido; distorsión, compresor y pitch apagados). *No* toca el
+  (HPF encendido; distorsión, compresor, pitch y ring mod apagados). *No* toca el
   fader ni mute/solo: en vivo, un salto de volumen es peligroso.
 
 ### Entrada manual de valores
@@ -108,10 +118,11 @@ una ventanita para teclear el valor exacto. Se escribe en las unidades que
 muestra la etiqueta: Hz (acepta `2k` = 2000), ms para los tiempos del
 compresor, dB, etc. Enter aplica, Esc cancela.
 
-## Columna FX (reverb y delay)
+## Strip FX (reverb y delay)
 
-Entre los canales y el master vive la columna **FX**, con los dos efectos
-globales de envío y sus botones de encendido:
+El strip **FX** vive apilado **arriba del strip MASTER**, en la última
+columna, con los dos efectos globales de envío y sus botones de
+encendido:
 
 - **REVERB** (`FreeVerb2`): **TAMAÑO** (dimensión del cuarto), **DAMP**
   (amortiguación de agudos en las reflexiones) y **RET** (nivel de retorno
@@ -123,8 +134,9 @@ globales de envío y sus botones de encendido:
 - **TAP**: marca el pulso a toques — dos o más toques seguidos fijan el
   TIEMPO del delay al intervalo entre ellos (20 ms a 2 s). Más de 2.5 s
   sin tocar reinicia la cuenta.
-- **RESET**: regresa la reverb y el delay a sus valores por defecto
-  (ambos encendidos). No toca los envíos de los canales.
+- **RESET**: regresa los efectos globales a sus valores por defecto
+  (reverb y delay encendidos, limitador a -0.4 dBFS). No toca los envíos
+  de los canales.
 
 Los retornos entran a la mezcla **antes** del fader master y del
 limitador. Todo (perillas y botones de encendido) se guarda en los presets
@@ -138,6 +150,9 @@ mezcla estéreo sí los incluye.
   (verde = izquierda, azul = derecha). Lo que ves es lo que sale por las
   bocinas.
 - Fader general + medidores L/R + **MUTE** general.
+- **LIM**: techo del limitador de seguridad (siempre activo; ver arriba).
+  Registrado como perilla global: entra a los presets y se mapea por MIDI
+  con `[\fx, \limTecho]`.
 - **● REC / ■ STOP** con checkbox **stems**: graba la mezcla estéreo tal
   como la escuchas, o — con el checkbox encendido — un WAV separado por
   canal (ver abajo).
@@ -279,8 +294,8 @@ a un destino:
 ```
 
 Las claves de perilla disponibles están listadas ahí mismo en un
-comentario (`\trim`, `\hpfFreq`, `\drive`, `\pitchRatio`, `\sendRev`,
-`\revTamano`, `\delTiempo`, …). Puedes agregar tantos mapas como quieras;
+comentario (`\trim`, `\hpfFreq`, `\drive`, `\pitchRatio`, `\ringFreq`,
+`\sendRev`, `\revTamano`, `\delTiempo`, `\limTecho`, …). Puedes agregar tantos mapas como quieras;
 el botón los cicla en orden.
 
 ## Configuración

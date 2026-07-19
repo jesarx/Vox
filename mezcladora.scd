@@ -1,19 +1,22 @@
 /*
 ================================================================================
-  VOZ ENCARNADA — Mezcladora corporal · v6
+  VOZ ENCARNADA — Mezcladora corporal · v7
   Patch de SuperCollider para Behringer UMC404HD · Arch Linux / PipeWire
 ================================================================================
 
   NOVEDADES DE ESTA VERSIÓN
   -------------------------
-  · 4 CANALES: se usa también la entrada 4 de la UMC404HD (canal EXTRA,
-    renómbralo en la sección 0 según lo que conectes).
-  · TAP en el delay: marca el pulso a toques y el TIEMPO se fija solo.
-  · Botón RESET en la columna FX (regresa reverb y delay a sus defaults).
-  · 4 presets rápidos (antes 8): los que caben en media fila del X-Touch.
-  · La columna del fader (mute/solo, envíos, fader, medidor, reset) tiene
-    ancho FIJO — el espacio sobrante del strip se va al lado del EQ.
-    Ajustable en la sección 0: anchoColFader / anchoFader / anchoMedidor.
+  · RING MODULATOR por canal (sección RING: FREC + MEZCLA): multiplica la
+    señal por una senoidal — voz metálica/campana. Insert al final de la
+    cadena, incluido en RESET, presets y MIDI.
+  · LIMITADOR con perilla en el MASTER: el limitador de seguridad de
+    siempre, pero ahora con techo ajustable (LIM, -12..0 dBFS). Sigue
+    SIEMPRE activo; bajar el techo lo convierte en efecto audible.
+  · El strip FX ya no es columna propia: vive ARRIBA del strip MASTER,
+    en la misma columna — la ventana gana ~150 px de ancho.
+
+  ANTERIORES: 4 canales · TAP y RESET en FX · 4 presets rápidos · columna
+  del fader de ancho fijo (anchoColFader/anchoFader/anchoMedidor).
 
   VERSIONES ANTERIORES: reverb/delay por envíos · player con loop, ruteo
   a canal y forma de onda · latencia configurable · presets rápidos por
@@ -79,7 +82,7 @@
 
 	// Ventana: posición y tamaño inicial.
 	ventanaX: 40, ventanaY: 40,
-	ventanaAncho: 1120, ventanaAlto: 970,
+	ventanaAncho: 980, ventanaAlto: 1000,
 
 	// Geometría de la columna del fader (la parte derecha de cada strip:
 	// mute/solo, envíos REV/DLY, fader, medidor y reset). El ancho de la
@@ -129,9 +132,11 @@
 // Claves de perilla disponibles por canal:
 //   \trim \pan \hpfFreq \loFreq \loGain \midFreq \midGain \midQ \hiFreq
 //   \hiGain \drive \mezcla \umbral \ratio \atk \rel \makeup
-//   \pitchRatio \pitchDisp \pitchMezcla \sendRev \sendDel
-// Claves de la columna FX:
-//   \revTamano \revDamp \revRetorno \delTiempo \delFb \delFiltro \delRetorno
+//   \pitchRatio \pitchDisp \pitchMezcla \ringFreq \ringMezcla
+//   \sendRev \sendDel
+// Claves globales (registro FX):
+//   \revTamano \revDamp \revRetorno \delTiempo \delFb \delFiltro
+//   \delRetorno \limTecho (techo del limitador del master)
 ~mapasMIDI = [
 	(
 		// El mapa de arranque: lo más útil en un concierto, de los cuatro
@@ -254,7 +259,8 @@ s.waitForBoot({
 	    specTrim, specPan, specHPF, specLoF, specMidF, specMidQ, specHiF,
 	    specGain, specFader, specDrive, specMezcla, specThr, specRatio,
 	    specAtk, specRel, specMakeup, specVolPlayer, specPitch, specDisp,
-	    specTiempoDel, specFb, specFiltroDel, specRetorno,
+	    specTiempoDel, specFb, specFiltroDel, specRetorno, specRingF,
+	    specTecho,
 	    hazKnob, hazSeccion, hazStrip, stripFx, stripMaster, filaPlayer,
 	    filaSlots, filaTitulo, btnMapa, ventana;
 
@@ -411,6 +417,19 @@ s.waitForBoot({
 		ReplaceOut.ar(bus, Select.ar(on, [sig, hum]));
 	}).add;
 
+	// ── 3e-bis. RING MODULATOR ─────────────────────────────────────────────
+	// Multiplicar la señal por una senoidal desplaza el espectro: en la
+	// salida quedan las sumas y restas de cada parcial con la portadora
+	// (voz metálica, de campana, "dalek"). Con la portadora grave (30-100
+	// Hz) es más trémolo áspero; aguda, más campana inarmónica.
+	SynthDef(\ins_ring, { |bus = 0, on = 0, freq = 300, mezcla = 1|
+		var sig, ring, hum;
+		sig  = In.ar(bus, 1);
+		ring = sig * SinOsc.ar(freq.lag(0.1));
+		hum  = XFade2.ar(sig, ring, mezcla.lag(0.05) * 2 - 1);
+		ReplaceOut.ar(bus, Select.ar(on, [sig, hum]));
+	}).add;
+
 	// ── 3f. SALIDA DE CANAL: fader, mute/solo, pan → suma al master ────────
 	SynthDef(\ent_salidaCanal, { |bus = 0, out = 0, amp = 1, mute = 1, pan = 0,
 	                              idMedidor = 0, busGrab = 0,
@@ -464,14 +483,16 @@ s.waitForBoot({
 	}).add;
 
 	// ── 3g. MASTER: fader general + limitador de seguridad ─────────────────
-	SynthDef(\ent_master, { |out = 0, amp = 1, mute = 1|
+	SynthDef(\ent_master, { |out = 0, amp = 1, mute = 1, techo = -0.4|
 		var sig;
 		sig = In.ar(out, 2);
 		sig = sig * amp.lag(0.05) * mute.lag(0.02);
-		// Pared absoluta a ~-0.4 dBFS. Con un hidrófono en la boca frente a
-		// bocinas, un feedback inesperado puede dispararse a niveles
-		// peligrosos para tus oídos y monitores: siempre activo, a propósito.
-		sig = Limiter.ar(sig, 0.95, 0.005);
+		// Pared absoluta al techo configurado (perilla LIM del master, por
+		// defecto -0.4 dBFS). Con un hidrófono en la boca frente a bocinas,
+		// un feedback inesperado puede dispararse a niveles peligrosos para
+		// tus oídos y monitores: SIEMPRE activo, a propósito. Bajar el techo
+		// lo vuelve un efecto audible (aplasta la mezcla contra la pared).
+		sig = Limiter.ar(sig, techo.dbamp.lag(0.05), 0.005);
 		SendPeakRMS.ar(sig, 20, 3, '/medidorMaster', 0);
 		ReplaceOut.ar(out, sig);
 	}).add;
@@ -543,6 +564,9 @@ s.waitForBoot({
 	};
 	~sintPitch = numCanales.collect { |i|
 		Synth.tail(~gFxCanal[i], \ins_pitch, [\bus, ~busCanal[i], \on, 0])
+	};
+	~sintRing = numCanales.collect { |i|
+		Synth.tail(~gFxCanal[i], \ins_ring, [\bus, ~busCanal[i], \on, 0])
 	};
 
 	~sintSalida = numCanales.collect { |i|
@@ -811,6 +835,8 @@ s.waitForBoot({
 	specFb        = ControlSpec(0, 0.95, \lin, units: "");
 	specFiltroDel = ControlSpec(200, 12000, \exp, units: "Hz");
 	specRetorno   = ControlSpec(-60, 6, \lin, units: "dB");
+	specRingF     = ControlSpec(30, 4000, \exp, units: "Hz");
+	specTecho     = ControlSpec(-12, 0, \lin, units: "dB");
 
 	// Formateo legible del valor según sus unidades.
 	~formatea = { |spec, v|
@@ -881,6 +907,7 @@ s.waitForBoot({
 	~btnDist  = Array.newClear(numCanales);
 	~btnComp  = Array.newClear(numCanales);
 	~btnPitch = Array.newClear(numCanales);
+	~btnRing  = Array.newClear(numCanales);
 	~btnsMute = Array.newClear(numCanales);
 	~faders   = Array.newClear(numCanales);
 	~medidores = Array.newClear(numCanales + 2);   // 3 canales + master L/R
@@ -1043,6 +1070,7 @@ s.waitForBoot({
 		~btnDist[i].valueAction_(0);
 		~btnComp[i].valueAction_(0);
 		~btnPitch[i].valueAction_(0);
+		~btnRing[i].valueAction_(0);
 	};
 
 	// ── RESET de la columna FX ──────────────────────────────────────────────
@@ -1069,6 +1097,7 @@ s.waitForBoot({
 			c[\distOn]  = ~btnDist[i].value;
 			c[\compOn]  = ~btnComp[i].value;
 			c[\pitchOn] = ~btnPitch[i].value;
+			c[\ringOn]  = ~btnRing[i].value;
 			c[\fader]   = specFader.map(~faders[i].value);
 			c
 		};
@@ -1097,6 +1126,7 @@ s.waitForBoot({
 					~btnDist[i].valueAction_(c[\distOn] ? 0);
 					~btnComp[i].valueAction_(c[\compOn] ? 0);
 					~btnPitch[i].valueAction_(c[\pitchOn] ? 0);
+					~btnRing[i].valueAction_(c[\ringOn] ? 0);
 					~faders[i].valueAction_(specFader.unmap(c[\fader] ? 0));
 				};
 			};
@@ -1174,8 +1204,9 @@ s.waitForBoot({
 	// ── Fábrica de canal completo (strip) ───────────────────────────────────
 	hazStrip = { |i|
 		var titulo, vistaEQ, rejillaEQ, btnHPF, secDist, rejillaDist, secComp,
-		    rejillaComp, secPitch, rejillaPitch, rejillaSends, btnMute, btnSolo,
-		    btnReset, lFader, fader, medidor, colFader, contenedor;
+		    rejillaComp, secPitch, rejillaPitch, secRing, rejillaRing,
+		    rejillaSends, btnMute, btnSolo, btnReset, lFader, fader, medidor,
+		    colFader, contenedor;
 
 		titulo = StaticText().string_(nombres[i]).align_(\center)
 			.font_(fuenteTitulo).stringColor_(colAcento);
@@ -1299,6 +1330,22 @@ s.waitForBoot({
 				specMezcla, 1, { |v| ~sintPitch[i].set(\mezcla, v) })
 		]).spacing_(2);
 
+		// —— RING MODULATOR ——
+		secRing = hazSeccion.("RING MOD",
+			"Activa/desactiva el ring modulator de este canal.",
+			{ |v| ~sintRing[i].set(\on, v) });
+		~btnRing[i] = secRing[1];
+
+		rejillaRing = GridLayout.rows([
+			hazKnob.(i, \ringFreq, "FREC",
+				"Frecuencia de la portadora senoidal. Grave (30-100 Hz) =\ntrémolo áspero; media/aguda = campana metálica inarmónica.",
+				specRingF, 300, { |v| ~sintRing[i].set(\freq, v) }),
+			hazKnob.(i, \ringMezcla, "MEZCLA",
+				"Balance limpio (0) ↔ modulado (1).\nValores medios dejan la voz reconocible con halo metálico.",
+				specMezcla, 1, { |v| ~sintRing[i].set(\mezcla, v) }),
+			nil
+		]).spacing_(2);
+
 		// —— Columna derecha: mute/solo, fader, medidor, reset ——
 		btnMute = Button()
 			.states_([["M", colTexto, colStrip], ["M", Color.white, colRojo]])
@@ -1389,6 +1436,8 @@ s.waitForBoot({
 				rejillaComp,
 				secPitch[0],
 				rejillaPitch,
+				secRing[0],
+				rejillaRing,
 				nil
 			).spacing_(3),
 			colFader
@@ -1471,13 +1520,15 @@ s.waitForBoot({
 		btnResetFx = Button()
 			.states_([["RESET", colAzul, colStrip]])
 			.font_(fuentePeq).maxHeight_(20)
-			.toolTip_("Regresa la reverb y el delay a sus valores por defecto\n(ambos encendidos). No toca los envíos de los canales.")
+			.toolTip_("Regresa los efectos globales a sus valores por defecto\n(reverb y delay encendidos, limitador a -0.4 dBFS).\nNo toca los envíos de los canales.")
 			.action_({ ~resetFx.value });
 
 		nota = StaticText()
 			.string_("los envíos REV / DLY\nviven junto a cada fader")
 			.align_(\center).font_(fuentePeq).stringColor_(colTextoSuave);
 
+		// Sin espacio elástico: este strip se apila ARRIBA del master en la
+		// misma columna, y el sobrante vertical se lo queda el master.
 		contenedor = View().background_(colStrip);
 		contenedor.layout = VLayout(
 			titulo,
@@ -1487,7 +1538,6 @@ s.waitForBoot({
 			rejillaDel,
 			btnTap,
 			nota,
-			nil,
 			btnResetFx
 		).margins_(7).spacing_(3);
 
@@ -1497,7 +1547,7 @@ s.waitForBoot({
 	// ── Strip del MASTER ─────────────────────────────────────────────────────
 	stripMaster = {
 		var titulo, lFader, fader, medL, medR, btnMute, lblRec, filaRec,
-		    btnGuardar, btnCargar, contenedor;
+		    layoutLim, btnGuardar, btnCargar, contenedor;
 
 		titulo = StaticText().string_("MASTER").align_(\center)
 			.font_(fuenteTitulo).stringColor_(colAcento);
@@ -1549,6 +1599,16 @@ s.waitForBoot({
 			.font_(fuente).maxHeight_(22)
 			.toolTip_("Silencia la salida general.")
 			.action_({ |b| ~sintMaster.set(\mute, 1 - b.value) });
+
+		// Techo del limitador de seguridad (registrado como perilla global
+		// \fx → \limTecho: entra a presets y es mapeable con [\fx, \limTecho]).
+		layoutLim = HLayout(
+			nil,
+			hazKnob.(\fx, \limTecho, "LIM",
+				"Techo del limitador del master (SIEMPRE activo, es la pared\nde seguridad). -0.4 dBFS por defecto. Bájalo para aplastar la\nmezcla contra el techo como efecto audible.",
+				specTecho, -0.4, { |v| ~sintMaster.set(\techo, v) }),
+			nil
+		);
 
 		lblRec = StaticText().string_("").align_(\center)
 			.font_(fuentePeq).stringColor_(colTextoSuave);
@@ -1626,6 +1686,7 @@ s.waitForBoot({
 			nil,   // espacio elástico
 			lFader,
 			[HLayout([fader, align: \center], [medL, align: \center], [medR, align: \center]).spacing_(4), stretch: 1],
+			layoutLim,
 			btnMute,
 			filaRec,
 			lblRec,
@@ -1825,7 +1886,9 @@ s.waitForBoot({
 	ventana.layout = VLayout(
 		filaTitulo,
 		// HLayout(*array): el asterisco desempaca el arreglo como argumentos.
-		[HLayout(*(numCanales.collect { |i| hazStrip.(i) } ++ [stripFx, stripMaster])).spacing_(6), stretch: 1],
+		// La última columna apila FX (compacto) arriba del MASTER (elástico).
+		[HLayout(*(numCanales.collect { |i| hazStrip.(i) }
+			++ [VLayout(stripFx, stripMaster).spacing_(6)])).spacing_(6), stretch: 1],
 		filaSlots,
 		filaPlayer
 	).margins_(8).spacing_(6);
